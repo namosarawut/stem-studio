@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stem Studio</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2315161b'/%3E%3Crect x='6' y='8' width='20' height='3' rx='1.5' fill='%23ff6b5e'/%3E%3Crect x='6' y='13' width='14' height='3' rx='1.5' fill='%23f5b83d'/%3E%3Crect x='6' y='18' width='17' height='3' rx='1.5' fill='%2338d6b4'/%3E%3Crect x='6' y='23' width='11' height='3' rx='1.5' fill='%238f8cff'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Home -->
+  <main id="view-home" class="view home" hidden>
+    <header class="brand-row">
+      <a class="brand" href="#/"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Stem Studio</a>
+      <span class="pill" id="device-pill"></span>
+    </header>
+
+    <section class="hero">
+      <h1>แยกเพลงออกเป็นแทร็ก<br>แล้วดูว่าเพลงถูกสร้างขึ้นมาอย่างไร</h1>
+      <p class="lede">AI แยกเสียงร้อง กลอง เบส และเครื่องดนตรีออกจากกัน จากนั้นวิเคราะห์จังหวะ คีย์ คอร์ด และท่อนเพลงให้ ทุกอย่างประมวลผลบนเครื่องนี้ ไฟล์เพลงไม่ถูกส่งออกไปไหน</p>
+
+      <label class="dropzone" id="dropzone">
+        <canvas id="hero-lanes" aria-hidden="true"></canvas>
+        <input id="file-input" type="file" accept="audio/*,video/mp4,video/quicktime,video/webm,.mp3,.wav,.flac,.m4a,.aac,.ogg,.opus,.aiff,.aif,.wma" >
+        <span class="drop-copy">
+          <strong>ลากไฟล์เพลงมาวางที่นี่</strong>
+          <span>หรือคลิกเพื่อเลือกไฟล์ · MP3, WAV, FLAC, M4A และอื่นๆ</span>
+        </span>
+      </label>
+
+      <fieldset class="models" id="model-picker">
+        <legend>เลือกโมเดล</legend>
+      </fieldset>
+    </section>
+
+    <section class="library" id="library-section" hidden>
+      <h2>เพลงของคุณ</h2>
+      <ul id="library"></ul>
+    </section>
+  </main>
+
+  <!-- Processing -->
+  <main id="view-processing" class="view processing" hidden>
+    <a class="back" href="#/">← กลับหน้าแรก</a>
+    <div class="proc-card">
+      <p class="proc-title" id="proc-title"></p>
+      <div class="proc-figure">
+        <span id="proc-percent">0</span><small>%</small>
+      </div>
+      <p class="proc-message" id="proc-message" role="status" aria-live="polite"></p>
+      <div class="proc-bar"><i id="proc-bar"></i></div>
+      <ol class="proc-steps" id="proc-steps"></ol>
+      <p class="proc-eta" id="proc-eta"></p>
+      <div class="proc-error" id="proc-error" hidden>
+        <strong id="proc-error-title"></strong>
+        <p id="proc-error-detail"></p>
+        <a class="btn" href="#/">ลองไฟล์อื่น</a>
+      </div>
+    </div>
+  </main>
+
+  <!-- Studio -->
+  <div id="view-studio" class="view studio" hidden>
+    <header class="topbar">
+      <a class="icon-btn" href="#/" aria-label="กลับหน้าแรก" title="กลับหน้าแรก">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </a>
+      <div class="song-id">
+        <h1 id="song-title"></h1>
+        <p id="song-sub"></p>
+      </div>
+
+      <div class="transport">
+        <button class="icon-btn" id="btn-back5" aria-label="ย้อนกลับ 5 วินาที" title="ย้อนกลับ 5 วินาที (←)">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M11 18V6l-8 6 8 6zm9 0V6l-8 6 8 6z"/></svg>
+        </button>
+        <button class="play-btn" id="btn-play" aria-label="เล่น" title="เล่น / หยุด (Space)" disabled>
+          <svg id="icon-play" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M7 4.5v15l13-7.5z"/></svg>
+          <svg id="icon-pause" viewBox="0 0 24 24" width="22" height="22" fill="currentColor" hidden><path d="M6 4h4.5v16H6zM13.5 4H18v16h-4.5z"/></svg>
+        </button>
+        <button class="icon-btn" id="btn-fwd5" aria-label="เดินหน้า 5 วินาที" title="เดินหน้า 5 วินาที (→)">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M13 6v12l8-6-8-6zM4 6v12l8-6-8-6z"/></svg>
+        </button>
+        <button class="icon-btn" id="btn-loop" aria-label="วนซ้ำท่อนปัจจุบัน" aria-pressed="false" title="วนซ้ำท่อนปัจจุบัน (L)">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 013-3h15"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 01-3 3H3"/></svg>
+        </button>
+        <button class="icon-btn" id="btn-click" aria-label="เปิดหรือปิดเมโทรนอม" aria-pressed="false" title="เมโทรนอม (C)" hidden>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6l4 18H5z"/><path d="M12 16l6-10"/><path d="M7 16h10"/></svg>
+        </button>
+        <div class="clock"><span id="time-now">0:00</span><span class="clock-sep">/</span><span id="time-total">0:00</span></div>
+      </div>
+
+      <div class="now">
+        <div class="now-item"><span>ท่อน</span><strong id="now-section">–</strong></div>
+        <div class="now-item"><span>คอร์ด</span><strong id="now-chord">–</strong><em id="now-roman"></em></div>
+      </div>
+
+      <div class="actions">
+        <button class="btn" id="btn-export" disabled>ส่งออกมิกซ์</button>
+        <a class="btn btn-primary" id="btn-zip">ดาวน์โหลด stem</a>
+      </div>
+    </header>
+
+    <div class="studio-body">
+      <section class="stats" id="stats" aria-label="ข้อมูลเพลง"></section>
+      <button type="button" class="resource-strip" id="resource-strip" hidden></button>
+
+      <section class="console" aria-label="มิกเซอร์">
+        <div class="console-head">
+          <div class="presets" id="presets" role="group" aria-label="พรีเซ็ตการฟัง"></div>
+          <div class="load-note" id="load-note" role="status"></div>
+          <div class="zoom" role="group" aria-label="ซูมไทม์ไลน์">
+            <button class="icon-btn small" id="zoom-out" aria-label="ซูมออก">−</button>
+            <span id="zoom-label">1×</span>
+            <button class="icon-btn small" id="zoom-in" aria-label="ซูมเข้า">+</button>
+          </div>
+        </div>
+
+        <div class="edit-tools">
+          <label class="edit-field lead-field" id="lead-field" hidden>ช่วงนับก่อนเพลง
+            <select class="edit-input" id="lead-bars">
+              <option value="0">ไม่มี</option>
+              <option value="1">1 ห้อง</option>
+              <option value="2">2 ห้อง</option>
+              <option value="3">3 ห้อง</option>
+              <option value="4">4 ห้อง</option>
+              <option value="8">8 ห้อง</option>
+            </select>
+          </label>
+          <span class="tool-sep" aria-hidden="true"></span>
+          <button class="chip" id="btn-edit-click" aria-pressed="false" hidden>แก้เมโทรนอม</button>
+          <button class="chip" id="btn-undo-cut" hidden>ย้อนการตัดล่าสุด</button>
+          <span class="tool-sep" aria-hidden="true"></span>
+          <button class="chip" id="btn-add-cue" hidden>+ เพิ่ม cue</button>
+          <button class="chip" id="btn-auto-cue" hidden>ใส่ cue อัตโนมัติจากท่อนเพลง</button>
+          <button class="chip" id="btn-undo-cue" hidden>ย้อน cue</button>
+          <button class="chip" id="btn-clear-cue" hidden>ล้าง cue ทั้งหมด</button>
+          <span class="edit-tip">ลากบนรูปคลื่นเพื่อเลือกช่วง แล้วย้ายไปไว้แทร็กใหม่ได้</span>
+        </div>
+
+        <div class="edit-panel" id="metro-panel" hidden>
+          <div class="edit-row">
+            <div class="edit-group" role="group" aria-label="ขยับเมโทรนอมทั้งเส้น">
+              <span class="edit-label">ขยับทั้งเส้น (ms)</span>
+              <button class="mini" data-shift="-50">−50</button><button class="mini" data-shift="-10">−10</button><button class="mini" data-shift="-1">−1</button>
+              <button class="mini" data-shift="1">+1</button><button class="mini" data-shift="10">+10</button><button class="mini" data-shift="50">+50</button>
+              <span class="edit-value" id="metro-offset">0 ms</span>
+            </div>
+            <div class="edit-group">
+              <label class="edit-label" for="metro-bpm">BPM</label>
+              <input class="edit-input" id="metro-bpm" type="number" min="30" max="300" step="0.01">
+              <button class="mini wide" id="metro-apply-bpm" title="สร้างจังหวะคงที่ โดยยึดจังหวะแรกของช่วง">ตั้งเป็นจังหวะคงที่ (ทั้งเพลง)</button>
+              <button class="mini" id="metro-double" title="เพิ่มจังหวะเป็น 2 เท่า">×2</button>
+              <button class="mini" id="metro-halve" title="ลดจังหวะเหลือครึ่งหนึ่ง">÷2</button>
+            </div>
+            <div class="edit-group">
+              <label class="edit-label" for="metro-meter">อัตราจังหวะ</label>
+              <select class="edit-input" id="metro-meter">
+                <option value="2">2/4</option><option value="3">3/4</option><option value="4">4/4</option><option value="5">5/4</option><option value="6">6/8</option><option value="7">7/8</option><option value="12">12/8</option>
+              </select>
+            </div>
+            <div class="edit-group edit-end">
+              <button class="mini wide" id="metro-undo" disabled>ย้อนกลับ</button>
+              <button class="mini wide" id="metro-reset">คืนค่าอัตโนมัติ</button>
+            </div>
+          </div>
+          <div class="edit-row">
+            <span class="edit-label">ความเร็วแต่ละช่วง</span>
+            <div class="tempo-chips" id="tempo-chips"></div>
+          </div>
+          <div class="edit-row" id="range-row" hidden>
+            <strong class="sel-source" id="range-label"></strong>
+            <button class="mini wide" id="range-even" title="ให้ทุกจังหวะในช่วงห่างเท่ากัน โดยไม่ขยับขอบช่วง">เกลี่ยให้ห่างเท่ากัน</button>
+            <button class="mini wide" id="range-clear">ยกเลิกช่วง</button>
+          </div>
+          <div class="edit-row" id="beat-controls">
+            <div class="edit-group">
+              <span class="edit-label" id="beat-name">ยังไม่ได้เลือกจังหวะ</span>
+              <span id="beat-tools" hidden>
+                <button class="mini" data-nudge="-5">−5</button><button class="mini" data-nudge="-1">−1</button><button class="mini" data-nudge="1">+1</button><button class="mini" data-nudge="5">+5</button>
+                <button class="mini wide" id="beat-downbeat">ตั้งเป็นจังหวะที่ 1</button>
+                <button class="mini wide" id="beat-delete">ลบจังหวะนี้</button>
+              </span>
+              <label class="edit-check"><input type="checkbox" id="beat-ripple"> ขยับจังหวะถัดไปด้วย</label>
+            </div>
+          </div>
+          <p class="edit-hint">ตั้ง BPM เฉพาะบางช่วง: คลิกช่วงในแถว "ความเร็ว" หรือลากบนแถวเมโทรนอมตรงที่ไม่มีขีด แล้วใส่ BPM · เล็งเส้นจังหวะให้ตรงหัวกลอง: ซูมเข้า แล้วลากขีดในแถวเมโทรนอม · ดับเบิลคลิกเพื่อเพิ่มหรือลบจังหวะ · ปุ่ม ← → ขยับทีละ 1 ms (Shift = 10 ms)</p>
+        </div>
+
+        <div class="edit-panel cue-panel" id="cue-panel" hidden>
+          <div class="edit-row">
+            <strong class="sel-source">เพิ่ม cue</strong>
+            <label class="edit-field">ที่เวลา <input class="edit-input" id="cue-time" type="number" step="0.01" min="0"></label>
+            <label class="edit-field" id="cue-offset-field">วาง
+              <select class="edit-input" id="cue-offset">
+                <option value="0">ตรงจุดนี้</option>
+                <option value="-2">ก่อนจุดนี้ 2 จังหวะ</option>
+                <option value="-bar" selected>ก่อนจุดนี้ 1 ห้อง</option>
+                <option value="-2bar">ก่อนจุดนี้ 2 ห้อง</option>
+              </select>
+            </label>
+            <label class="edit-check"><input type="checkbox" id="cue-snap" checked> ชิดจังหวะ</label>
+            <label class="edit-field">เสียง <select class="edit-input" id="cue-voice"></select></label>
+            <button class="mini wide edit-end" id="cue-close">ปิด</button>
+          </div>
+          <div class="edit-row">
+            <div class="cue-tabs" id="cue-tabs" role="tablist"></div>
+            <input class="edit-input cue-search" id="cue-search" type="search" placeholder="ค้นหา cue เช่น chorus, ฮุก, กลอง" aria-label="ค้นหา cue">
+          </div>
+          <div class="cue-items" id="cue-items"></div>
+          <div class="edit-row cue-custom" id="cue-custom" hidden>
+            <input class="edit-input sel-name" id="cue-text" maxlength="80" placeholder="พิมพ์คำที่ต้องการให้พูด เช่น ท่อนแร็พของเจ" aria-label="ข้อความ cue">
+          </div>
+          <div class="edit-row">
+            <span class="edit-hint" id="cue-hint"></span>
+            <span class="edit-end cue-actions">
+              <button class="mini wide" id="cue-listen">ฟังเสียง</button>
+              <button class="btn btn-primary" id="cue-add" disabled>ใส่ cue</button>
+            </span>
+          </div>
+        </div>
+
+        <div class="edit-panel" id="cue-selected" hidden>
+          <div class="edit-row">
+            <strong class="sel-source" id="cs-label"></strong>
+            <label class="edit-field">เวลา <input class="edit-input" id="cs-time" type="number" step="0.001" min="0"></label>
+            <span class="edit-group">
+              <button class="mini wide" data-cue-move="-beat">−1 จังหวะ</button>
+              <button class="mini" data-cue-move="-0.01">−10</button><button class="mini" data-cue-move="-0.001">−1</button>
+              <button class="mini" data-cue-move="0.001">+1</button><button class="mini" data-cue-move="0.01">+10</button>
+              <button class="mini wide" data-cue-move="beat">+1 จังหวะ</button>
+              <span class="edit-label">ms</span>
+            </span>
+            <label class="edit-field">เสียง <select class="edit-input" id="cs-voice"></select></label>
+            <span class="edit-end cue-actions">
+              <button class="mini wide" id="cs-listen">ฟังเสียง</button>
+              <button class="mini wide" id="cs-delete">ลบ cue นี้</button>
+              <button class="mini wide" id="cs-close">ปิด</button>
+            </span>
+          </div>
+          <p class="edit-hint">ลากป้าย cue ในแถว Cues เพื่อย้าย (ชิดจังหวะอัตโนมัติ กด Alt ค้างไว้เพื่อวางอิสระ) · กด Delete เพื่อลบ</p>
+        </div>
+
+        <div class="edit-panel" id="sel-bar" hidden>
+          <div class="edit-row">
+            <strong class="sel-source" id="sel-source"></strong>
+            <label class="edit-field">เริ่ม <input class="edit-input" id="sel-start" type="number" step="0.01" min="0"></label>
+            <label class="edit-field">จบ <input class="edit-input" id="sel-end" type="number" step="0.01" min="0"></label>
+            <span class="edit-value" id="sel-length"></span>
+            <label class="edit-check"><input type="checkbox" id="sel-snap"> ชิดจังหวะ</label>
+            <button class="mini wide" id="sel-listen">ฟังช่วงนี้</button>
+          </div>
+          <div class="edit-row">
+            <label class="edit-field">ย้ายไป <select class="edit-input" id="sel-target"></select></label>
+            <input class="edit-input sel-name" id="sel-name" maxlength="40" placeholder="ชื่อแทร็กใหม่ เช่น แอดลิบ" aria-label="ชื่อแทร็กใหม่">
+            <button class="btn btn-primary" id="sel-move">ย้ายไปแทร็ก</button>
+            <button class="btn" id="sel-cancel">ยกเลิก</button>
+          </div>
+        </div>
+        <div class="timeline">
+          <div class="strips" id="strips"></div>
+          <div class="scroller" id="scroller">
+            <div class="scroll-inner" id="scroll-inner">
+              <div class="stage" id="stage">
+                <canvas id="tl-base" role="img" aria-label="ไทม์ไลน์ของท่อนเพลง คอร์ด และรูปคลื่นของแต่ละแทร็ก คลิกเพื่อย้ายตำแหน่งเล่น"></canvas>
+                <canvas id="tl-head" aria-hidden="true"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="anatomy">
+        <div class="panel panel-wide" id="resources" hidden>
+          <h2>ทรัพยากรเครื่องที่ใช้</h2>
+          <p class="hint" id="res-machine"></p>
+          <div class="res-tiles" id="res-tiles"></div>
+          <h3>แต่ละขั้นตอน</h3>
+          <div class="res-table-wrap"><table class="res-table" id="res-table"></table></div>
+          <p class="hint res-note" id="res-note"></p>
+        </div>
+
+        <div class="panel panel-wide">
+          <h2>เพลงนี้ถูกสร้างขึ้นมาอย่างไร</h2>
+          <dl class="insights" id="insights"></dl>
+        </div>
+
+        <div class="panel panel-wide">
+          <h2>แผนที่การเรียบเรียง</h2>
+          <p class="hint">เครื่องดนตรีแต่ละชิ้นเล่นอยู่ในท่อนไหน สียิ่งเข้มยิ่งเล่นนาน คลิกที่ท่อนเพื่อไปยังตำแหน่งนั้น</p>
+          <div class="matrix-wrap"><div class="matrix" id="matrix"></div></div>
+        </div>
+
+        <div class="panel">
+          <h2>ลูปคอร์ด</h2>
+          <p class="hint">รูปแบบ 4 ห้องที่วนซ้ำบ่อยที่สุด พร้อมเลขโรมันเทียบกับคีย์</p>
+          <div id="loops"></div>
+          <h3>คอร์ดที่ใช้เวลามากสุด</h3>
+          <div id="chord-usage"></div>
+        </div>
+
+        <div class="panel">
+          <h2>สัดส่วนในมิกซ์</h2>
+          <p class="hint">แต่ละแทร็กกินพลังงานและย่านความถี่แค่ไหน</p>
+          <div class="share-bar" id="share-bar"></div>
+          <div class="stem-table" id="stem-table"></div>
+        </div>
+      </section>
+
+      <p class="disclaimer">ท่อนเพลงและคอร์ดเป็นค่าประมาณจากอัลกอริทึม คอร์ดรองรับเฉพาะเมเจอร์และไมเนอร์ และชื่อท่อนอาจต่างจากที่นักแต่งเพลงตั้งใจ ควรใช้เป็นจุดเริ่มต้นแล้วฟังยืนยันอีกครั้ง</p>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="alert" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>

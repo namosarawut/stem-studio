@@ -1,0 +1,13 @@
+torch>=2.2,<2.9
+torchaudio>=2.2,<2.9
+demucs==4.0.1
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9
+librosa>=0.10.2
+soundfile>=0.12
+imageio-ffmpeg>=0.5
+numpy<2.4
+scipy>=1.11
+audio-separator[cpu]==0.45.0
+psutil>=5.9

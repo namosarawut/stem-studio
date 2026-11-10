@@ -1,0 +1,13 @@
+# Local environment and big downloads (recreated by start.command)
+.venv/
+models/
+
+# Uploaded songs, stems and edits: personal audio, never committed
+data/
+
+# Machine-specific launch config
+.claude/
+
+__pycache__/
+*.pyc
+.DS_Store
