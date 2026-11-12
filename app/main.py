@@ -14,24 +14,27 @@ import zipfile
 from pathlib import Path
 from urllib.parse import urlparse
 
+import imageio_ffmpeg
 import soundfile as sf
 
 ROOT = Path(__file__).resolve().parent.parent
 # STEM_STUDIO_DATA lets a test server run against its own songs, away from real ones.
 DATA_DIR = Path(os.environ.get("STEM_STUDIO_DATA", ROOT / "data")) / "jobs"
 STATIC_DIR = ROOT / "static"
+LIBRARY_DIR = DATA_DIR.parent / "library"      # songs imported for setlists
+PLAYLIST_DIR = DATA_DIR.parent / "playlists"
 
 # Keep model weights beside the app, and let Metal fall back to CPU for any
 # unsupported op. Both must be set before torch is imported.
 os.environ.setdefault("TORCH_HOME", str(ROOT / "models"))
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile  # noqa: E402
+from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
-from . import cues as cue_track, project, separator  # noqa: E402
+from . import cues as cue_track, playlists, project, separator  # noqa: E402
 from .analyzer import ANALYSIS_VERSION, STEM_THAI, _peaks, analyze  # noqa: E402
 from .metronome import render_click  # noqa: E402
 from .monitor import ResourceMonitor  # noqa: E402
@@ -655,6 +658,150 @@ def delete_job(job_id: str) -> None:
     with jobs_lock:
         jobs.pop(job_id, None)
     shutil.rmtree(job_dir(job_id), ignore_errors=True)
+
+
+# ------------------------------------------------------------------ setlists
+
+def _import_dir(import_id: str) -> Path:
+    if not playlists.ITEM_ID.match(import_id):
+        raise HTTPException(404, "ไม่พบไฟล์")
+    return LIBRARY_DIR / import_id
+
+
+def _receive_upload(file: UploadFile, target: Path) -> None:
+    written = 0
+    with open(target, "wb") as out:
+        while chunk := file.file.read(1024 * 1024):
+            written += len(chunk)
+            if written > MAX_UPLOAD_BYTES:
+                raise HTTPException(413, "ไฟล์ใหญ่เกิน 1 GB")
+            out.write(chunk)
+
+
+@app.get("/api/library")
+def list_library() -> list[dict]:
+    return playlists.list_imports(LIBRARY_DIR)
+
+
+@app.post("/api/library", status_code=201)
+def import_song(file: UploadFile = File(...)) -> dict:
+    """Add an audio file from this computer to the setlist library, as it is (no separation)."""
+    filename = Path(file.filename or "song").name
+    suffix = Path(filename).suffix.lower()
+    if suffix not in ALLOWED_SUFFIXES:
+        raise HTTPException(415, f"ไม่รองรับไฟล์ {suffix or 'ชนิดนี้'}")
+    folder = LIBRARY_DIR / uuid.uuid4().hex[:12]
+    folder.mkdir(parents=True)
+    source = folder / f".source{suffix}"
+    try:
+        _receive_upload(file, source)
+        return playlists.import_file(folder, source, Path(filename).stem, filename, imageio_ffmpeg.get_ffmpeg_exe(), separator.SAMPLE_RATE)
+    except playlists.PlaylistError as error:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise HTTPException(422, str(error))
+    except BaseException:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
+    finally:
+        source.unlink(missing_ok=True)
+
+
+@app.get("/api/library/{import_id}")
+def read_library_song(import_id: str) -> dict:
+    meta = playlists.read_import(_import_dir(import_id))
+    if meta is None:
+        raise HTTPException(404, "ไม่พบไฟล์")
+    return meta
+
+
+@app.get("/api/library/{import_id}/audio.wav")
+def read_library_audio(import_id: str) -> FileResponse:
+    path = _import_dir(import_id) / "audio.wav"
+    if not path.exists():
+        raise HTTPException(404, "ไม่พบไฟล์")
+    return FileResponse(path, media_type="audio/wav")
+
+
+@app.delete("/api/library/{import_id}", status_code=204)
+def delete_library_song(import_id: str) -> None:
+    folder = _import_dir(import_id)
+    if not folder.exists():
+        raise HTTPException(404, "ไม่พบไฟล์")
+    shutil.rmtree(folder, ignore_errors=True)
+
+
+class MixRequest(BaseModel):
+    muted: list[str] = []
+    pan: dict[str, str] = {}
+
+
+@app.post("/api/jobs/{job_id}/playback")
+def render_playback(job_id: str, request: MixRequest) -> dict:
+    """One stereo file of a finished song with the chosen tracks on and routed, for the
+    setlist player. Includes the lead-in, so a count-in plays too."""
+    job = editable_job(job_id)
+    folder = job_dir(job_id)
+    with edit_lock:
+        edits = project.load_edits(folder)
+        stems = project.stems_after_edit(job, edits)
+        sources = {stem: project.serve_path(folder, stem, edits) for stem in stems}
+    sources = {stem: path for stem, path in sources.items() if path.exists()}
+    if not sources:
+        raise HTTPException(409, "ไม่พบไฟล์เสียงของเพลงนี้")
+    mix = {"muted": sorted(set(request.muted) & set(sources)), "pan": {k: v for k, v in request.pan.items() if k in sources and v in ("L", "R")}}
+    meta = playlists.render_mix(sources, mix, folder / "playback", _peaks)
+    return {**meta, "url": f"/api/jobs/{job_id}/playback/{meta['key']}.wav"}
+
+
+@app.get("/api/jobs/{job_id}/playback/{key}.wav")
+def read_playback(job_id: str, key: str) -> FileResponse:
+    if not re.fullmatch(r"[0-9a-f]{16}", key):
+        raise HTTPException(404, "ไม่พบไฟล์")
+    path = job_dir(job_id) / "playback" / f"{key}.wav"
+    if not path.exists():
+        raise HTTPException(404, "ไฟล์หมดอายุแล้ว กรุณาโหลดใหม่")
+    return FileResponse(path, media_type="audio/wav")
+
+
+@app.get("/api/playlists")
+def list_playlists() -> list[dict]:
+    return playlists.list_playlists(PLAYLIST_DIR)
+
+
+class PlaylistName(BaseModel):
+    name: str = ""
+
+
+@app.post("/api/playlists", status_code=201)
+def create_playlist(request: PlaylistName) -> dict:
+    try:
+        return playlists.create_playlist(PLAYLIST_DIR, request.name)
+    except playlists.PlaylistError as error:
+        raise HTTPException(409, str(error))
+
+
+@app.get("/api/playlists/{playlist_id}")
+def read_playlist(playlist_id: str) -> dict:
+    try:
+        return playlists.read_playlist(PLAYLIST_DIR, playlist_id)
+    except playlists.PlaylistError as error:
+        raise HTTPException(404, str(error))
+
+
+@app.put("/api/playlists/{playlist_id}")
+def save_playlist(playlist_id: str, body: dict = Body(...)) -> dict:
+    try:
+        return playlists.save_playlist(PLAYLIST_DIR, playlist_id, body)
+    except playlists.PlaylistError as error:
+        raise HTTPException(404 if "ไม่พบ" in str(error) else 422, str(error))
+
+
+@app.delete("/api/playlists/{playlist_id}", status_code=204)
+def delete_playlist(playlist_id: str) -> None:
+    try:
+        playlists.delete_playlist(PLAYLIST_DIR, playlist_id)
+    except playlists.PlaylistError as error:
+        raise HTTPException(404, str(error))
 
 
 app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")

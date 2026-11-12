@@ -110,6 +110,9 @@ COUNT_STYLES = {
     "long": "นับ 2 ห้อง (1 · 2 · / 1 2 3 4)",
     "short": "นับครึ่งห้องท้าย (3 4)",
     "ready_go": "นับแล้วบอกพร้อม-ไป (1 2 พร้อม ไป)",
+    "gap1": "นับเว้น 1 จังหวะ (1 · 2 · 3 · 4 ·)",
+    "gap2": "นับเว้น 2 จังหวะ (1 · · 2 · · 3 · · 4 · ·)",
+    "gap3": "นับเว้น 3 จังหวะ (1 · · · 2 · · · 3 · · · 4 · · ·)",
 }
 
 _sample_lock = threading.Lock()
@@ -237,6 +240,10 @@ def count_words(style: str, meter: int, lang: str) -> list[str | None]:
     if style == "ready_go":
         go = ["ready", "go"] if lang == "en" else ["พร้อม", "ไป"]
         return bar[:-2] + go if meter > 2 else go
+    if style in ("gap1", "gap2", "gap3"):
+        # Each number followed by 1-3 silent beats, for slow songs or a half/quarter-time feel.
+        gap = int(style[-1])
+        return [slot for word in bar for slot in [word] + [None] * gap]
     raise CueError("ไม่รู้จักรูปแบบการนับ")
 
 
@@ -317,7 +324,9 @@ def render(cues: list[dict], beats: list[float], meter: int, samples: int, sampl
         for i, (time, word) in enumerate(zip(times, words)):
             if word is None:
                 continue
-            nxt = times[i + 1] if i + 1 < len(times) else target_time
+            # Let the word ring until the next spoken word (or the band's entry), not just
+            # the next beat, so spaced counts aren't cut short on the silent beats.
+            nxt = next((t for t, w in zip(times[i + 1:], words[i + 1:]) if w is not None), target_time)
             steps.append((time, word, COUNT_RATE, nxt))
             jobs.append((cue["voice"], word, COUNT_RATE))
         plans.append((cue, steps))

@@ -68,13 +68,15 @@ let system = null;
 let leaveView = () => {};
 
 function show(view, keepScroll = false) {
-  for (const name of ["home", "processing", "studio"]) $(`view-${name}`).hidden = name !== view;
+  for (const name of ["home", "processing", "studio", "playlists"]) $(`view-${name}`).hidden = name !== view;
   if (!keepScroll) window.scrollTo(0, 0);
 }
 
 async function route() {
   leaveView();
   leaveView = () => {};
+  const setlist = location.hash.match(/^#\/playlists(?:\/([0-9a-f]{12}))?$/);
+  if (setlist) return showPlaylists(setlist[1] ?? null);
   const match = location.hash.match(/^#\/job\/([0-9a-f]{12})$/);
   if (!match) return showHome();
   try {
@@ -89,27 +91,71 @@ async function route() {
 
 // ------------------------------------------------------------------ home
 
-let selectedModel = "htdemucs";
+// The two everyday choices sit up front; the slower ones wait behind a toggle.
+const MAIN_MODELS = ["htdemucs_6s", "htdemucs"];
+let selectedModel = "htdemucs_6s";
+let moreModelsOpen = false;
 
 function renderModels() {
   const picker = $("model-picker");
-  picker.querySelectorAll(".model").forEach((node) => node.remove());
-  for (const model of system.models) {
+  picker.querySelectorAll(".model, .models-more").forEach((node) => node.remove());
+  const option = (model) => {
     const input = el("input", { type: "radio", name: "model", value: model.id, onchange: () => { selectedModel = model.id; } });
     input.checked = model.id === selectedModel;
-    picker.append(el("label", { class: "model" }, input, el("strong", {}, model.title), el("span", {}, model.description)));
-  }
+    return el("label", { class: "model" }, input, el("strong", {}, model.title), el("span", {}, model.description));
+  };
+  const main = MAIN_MODELS.map((id) => system.models.find((m) => m.id === id)).filter(Boolean);
+  const extra = system.models.filter((m) => !MAIN_MODELS.includes(m.id));
+  if (!main.some((m) => m.id === selectedModel) && !extra.some((m) => m.id === selectedModel)) selectedModel = main[0]?.id ?? system.models[0]?.id;
+  picker.append(...main.map(option));
+  if (!extra.length) return;
+  // Never hide the option that is currently picked.
+  if (extra.some((m) => m.id === selectedModel)) moreModelsOpen = true;
+  const extraNodes = extra.map((m) => { const node = option(m); node.hidden = !moreModelsOpen; return node; });
+  const toggle = el("button", { type: "button", class: "models-more", "aria-expanded": String(moreModelsOpen) });
+  const paint = () => {
+    toggle.textContent = moreModelsOpen ? "ซ่อนตัวเลือกเพิ่มเติม" : `ตัวเลือกเพิ่มเติม (${extra.length}) · ${extra.map((m) => m.title).join(", ")}`;
+    toggle.setAttribute("aria-expanded", String(moreModelsOpen));
+  };
+  toggle.addEventListener("click", () => {
+    if (moreModelsOpen && extra.some((m) => m.id === selectedModel)) {
+      // Closing while a hidden option is picked: fall back to the first main one.
+      selectedModel = main[0].id;
+      picker.querySelector(`input[value="${selectedModel}"]`).checked = true;
+    }
+    moreModelsOpen = !moreModelsOpen;
+    extraNodes.forEach((node) => { node.hidden = !moreModelsOpen; });
+    paint();
+  });
+  paint();
+  picker.append(toggle, ...extraNodes);
 }
 
 function modelTitle(id) {
   return system.models.find((m) => m.id === id)?.title ?? id;
 }
 
-function renderLibrary(jobs) {
+let libraryJobs = [];
+
+function librarySearchText(job) {
+  const parts = [job.title, job.key, modelTitle(job.model)];
+  if (job.status === "done") parts.push(`${Math.round(job.bpm)} bpm`, fmtTime(job.duration));
+  return parts.filter(Boolean).join(" ").normalize("NFC").toLowerCase();
+}
+
+function renderLibrary(jobs = libraryJobs) {
+  libraryJobs = jobs;
   const list = $("library");
   list.replaceChildren();
   $("library-section").hidden = jobs.length === 0;
-  for (const job of jobs) {
+  // Every typed word must appear somewhere in the title, key, BPM or model.
+  const query = $("library-search").value.normalize("NFC").toLowerCase().trim();
+  const terms = query.split(/\s+/).filter(Boolean);
+  const shown = terms.length ? jobs.filter((job) => { const text = librarySearchText(job); return terms.every((term) => text.includes(term)); }) : jobs;
+  $("library-count").textContent = terms.length ? `${shown.length} จาก ${jobs.length}` : `${jobs.length} เพลง`;
+  $("library-empty").hidden = shown.length > 0 || jobs.length === 0;
+  $("library-empty").textContent = `ไม่พบเพลงที่ตรงกับ “${query}”`;
+  for (const job of shown) {
     let meta;
     if (job.status === "done") {
       meta = el("span", { class: "lib-meta" }, [fmtTime(job.duration), `${Math.round(job.bpm)} BPM`, job.key, modelTitle(job.model)].join(" · "));
@@ -123,6 +169,11 @@ function renderLibrary(jobs) {
     list.append(el("li", { class: "lib-item" }, open, busy ? null : deleteButton(job)));
   }
 }
+
+$("library-search").addEventListener("input", () => renderLibrary());
+$("library-search").addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && event.target.value) { event.target.value = ""; renderLibrary(); }
+});
 
 function deleteButton(job) {
   let armed = false;
@@ -315,6 +366,36 @@ function showProcessing(job) {
 
 // ------------------------------------------------------------------ audio engine
 
+/** Pan routing for one track: "C" keeps the stereo image, "L"/"R" fold the track to mono
+ * and send it to one speaker only (the usual split for a click or cue in one ear). Three
+ * parallel sends with gains, so switching never reconnects nodes or clicks. */
+function makeRoute(ctx, output) {
+  const input = ctx.createGain();
+  const center = ctx.createGain();
+  const left = ctx.createGain();
+  const right = ctx.createGain();
+  // The merger's inputs are mono, so a stereo send is folded as (L + R) / 2: a centred
+  // sound keeps its level when moved to one side.
+  const merger = ctx.createChannelMerger(2);
+  input.connect(center).connect(output);
+  input.connect(left).connect(merger, 0, 0);
+  input.connect(right).connect(merger, 0, 1);
+  merger.connect(output);
+  const set = (pan, at = null) => {
+    const values = { C: [1, 0, 0], L: [0, 1, 0], R: [0, 0, 1] }[pan] ?? [1, 0, 0];
+    [center, left, right].forEach((node, i) => {
+      if (at === null) node.gain.value = values[i];
+      else node.gain.setTargetAtTime(values[i], at, 0.01);
+    });
+  };
+  set("C");
+  return { input, set };
+}
+
+const PANS = ["L", "C", "R"];
+const PAN_NAMES = { L: "ลำโพงซ้าย", C: "ทั้งสองข้าง", R: "ลำโพงขวา" };
+const PAN_SHORT = { L: "ซ้าย", C: "กลาง", R: "ขวา" };
+
 class Mixer {
   constructor(stemIds) {
     this.ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100, latencyHint: "interactive" });
@@ -325,9 +406,10 @@ class Mixer {
       const gain = this.ctx.createGain();
       const analyser = this.ctx.createAnalyser();
       analyser.fftSize = 1024;
-      gain.connect(analyser);
-      analyser.connect(this.master);
-      this.tracks.set(id, { id, root: id, gain, analyser, buffer: null, fader: 1, mute: false, solo: false, source: null, samples: new Float32Array(1024) });
+      const route = makeRoute(this.ctx, this.master);
+      // Keep the meter in the signal path: a dangling analyser may not be pulled.
+      gain.connect(analyser).connect(route.input);
+      this.tracks.set(id, { id, root: id, gain, analyser, route, pan: "C", buffer: null, fader: 1, mute: false, solo: false, source: null, samples: new Float32Array(1024) });
     }
     this.playing = false;
     this.offset = 0;
@@ -348,6 +430,13 @@ class Mixer {
     for (const track of this.tracks.values()) {
       track.gain.gain.setTargetAtTime(this.effectiveGain(track), this.ctx.currentTime, 0.012);
     }
+  }
+
+  setPan(id, pan) {
+    const track = this.tracks.get(id);
+    if (!track || !PANS.includes(pan)) return;
+    track.pan = pan;
+    track.route.set(pan, this.ctx.currentTime);
   }
 
   position() {
@@ -445,7 +534,7 @@ class Mixer {
     return peak;
   }
 
-  /** Render the current fader, mute and solo state to a stereo WAV Blob. */
+  /** Render the current fader, mute, solo and left/right state to a stereo WAV Blob. */
   async exportMix() {
     // Use the audio's own length: the song's listed duration is rounded to the millisecond.
     const length = Math.max(...[...this.tracks.values()].map((t) => t.buffer?.length ?? 0));
@@ -457,7 +546,9 @@ class Mixer {
       source.buffer = track.buffer;
       const gain = offline.createGain();
       gain.gain.value = gainValue;
-      source.connect(gain).connect(offline.destination);
+      const route = makeRoute(offline, offline.destination);
+      route.set(track.pan);
+      source.connect(gain).connect(route.input);
       source.start();
     }
     return encodeWav(await offline.startRendering());
@@ -598,7 +689,12 @@ async function showStudio(job, keep = null) {
       meter,
     );
     strips.append(strip);
-    stripRefs.set(stem.id, { muteButton, soloButton, meter });
+    const panButtons = PANS.map((pan) => el("button", {
+      class: "pan-btn", "aria-pressed": "false", "aria-label": `${stem.name} ออก${PAN_NAMES[pan]}`, title: `ออก${PAN_NAMES[pan]}`,
+      onclick: () => { setPan(stem.id, pan); syncPan(); },
+    }, pan));
+    strip.querySelector(".fader-row").append(el("div", { class: "pan", role: "group", "aria-label": `ลำโพงของ ${stem.name}` }, ...panButtons));
+    stripRefs.set(stem.id, { muteButton, soloButton, meter, panButtons });
   }
 
   // ---- presets
@@ -627,7 +723,52 @@ async function showStudio(job, keep = null) {
     return button;
   }));
 
+  // ---- left/right routing, remembered per song in this browser
+  const panKey = `stem-studio:pan:${job.id}`;
+  const savedPans = (() => { try { return JSON.parse(localStorage.getItem(panKey) || "{}"); } catch { return {}; } })();
+  for (const [id, pan] of Object.entries(savedPans)) mixer.setPan(id, pan);
+  function setPan(id, pan) {
+    mixer.setPan(id, pan);
+    try {
+      const pans = Object.fromEntries([...mixer.tracks.values()].filter((t) => t.pan !== "C").map((t) => [t.id, t.pan]));
+      if (Object.keys(pans).length) localStorage.setItem(panKey, JSON.stringify(pans)); else localStorage.removeItem(panKey);
+    } catch { /* storage blocked: the setting still applies until the page closes */ }
+  }
+  const guideIds = [...mixer.tracks.keys()].filter((id) => GUIDES.includes(id));
+  const otherIds = [...mixer.tracks.keys()].filter((id) => !GUIDES.includes(id));
+  const groupButtons = [];
+  const routingGroup = (label, ids) => el("div", { class: "route-group", role: "group", "aria-label": `${label} ออกลำโพง` },
+    el("span", { class: "route-label" }, label),
+    ...PANS.map((pan) => {
+      const button = el("button", { class: "pan-btn wide", "aria-pressed": "false", onclick: () => { ids.forEach((id) => setPan(id, pan)); syncPan(); } }, PAN_SHORT[pan]);
+      groupButtons.push({ button, ids, pan });
+      return button;
+    }));
+  const splitButton = (label, guidePan, otherPan) => el("button", {
+    class: "chip", onclick: () => { guideIds.forEach((id) => setPan(id, guidePan)); otherIds.forEach((id) => setPan(id, otherPan)); syncPan(); },
+  }, label);
+  const routeNote = el("span", { class: "route-note" });
+  $("routing").replaceChildren(
+    el("span", { class: "route-title" }, "ออกลำโพง"),
+    guideIds.length ? routingGroup("คิว + เมโทรนอม", guideIds) : null,
+    routingGroup(guideIds.length ? "แทร็กอื่น" : "ทุกแทร็ก", otherIds),
+    guideIds.length ? splitButton("คิว+เมโทรนอม ซ้าย · ดนตรี ขวา", "L", "R") : null,
+    guideIds.length ? splitButton("คิว+เมโทรนอม ขวา · ดนตรี ซ้าย", "R", "L") : null,
+    el("button", { class: "chip", onclick: () => { mixer.tracks.forEach((t) => setPan(t.id, "C")); syncPan(); } }, "คืนค่าตรงกลาง"),
+    routeNote,
+  );
+  function syncPan() {
+    for (const [id, refs] of stripRefs) {
+      const pan = mixer.tracks.get(id).pan;
+      refs.panButtons.forEach((button, i) => button.setAttribute("aria-pressed", PANS[i] === pan));
+    }
+    for (const { button, ids, pan } of groupButtons) button.setAttribute("aria-pressed", ids.length > 0 && ids.every((id) => mixer.tracks.get(id).pan === pan));
+    const split = [...mixer.tracks.values()].some((t) => t.pan !== "C");
+    routeNote.textContent = split ? "มีผลตอนเล่นและตอนส่งออกมิกซ์ · ไฟล์แยกแทร็กไม่เปลี่ยน" : "";
+  }
+
   function syncMixer() {
+    syncPan();
     mixer.applyGains();
     for (const [id, refs] of stripRefs) {
       const track = mixer.tracks.get(id);
@@ -1653,7 +1794,7 @@ async function showStudio(job, keep = null) {
   const hasCues = mixer.tracks.has(CUES);
   const loadVoice = () => { try { return localStorage.getItem("stem-studio-cue-voice"); } catch { return null; } };
   const saveVoice = (v) => { try { localStorage.setItem("stem-studio-cue-voice", v); } catch { /* storage unavailable */ } };
-  const STYLE_SHORT = { full: "1 2 3 4", long: "นับ 2 ห้อง", short: "3 4", ready_go: "พร้อม ไป" };
+  const STYLE_SHORT = { full: "1 2 3 4", long: "นับ 2 ห้อง", short: "3 4", ready_go: "พร้อม ไป", gap1: "เว้น 1", gap2: "เว้น 2", gap3: "เว้น 3" };
 
   function cueLabel(cue) {
     if (cue.kind === "count") return `นับเข้า · ${STYLE_SHORT[cue.style] ?? ""}`;
