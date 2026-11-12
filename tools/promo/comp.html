@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>Prism promo</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  html, body { margin: 0; width: 1080px; height: 1920px; overflow: hidden; background: #0C0D10; }
+  body { font-family: 'IBM Plex Sans Thai', sans-serif; color: #EEECE6; -webkit-font-smoothing: antialiased; }
+  .abs { position: absolute; }
+  #bg { position: absolute; inset: 0; overflow: hidden; }
+  .blob { position: absolute; width: 900px; height: 900px; border-radius: 50%; filter: blur(140px); opacity: .22; }
+  .scene { position: absolute; inset: 0; opacity: 0; }
+  .eyebrow { position: absolute; left: 80px; top: 230px; font-size: 36px; font-weight: 600; letter-spacing: 1px; }
+  .title { position: absolute; left: 80px; width: 920px; top: 290px; font-size: 82px; font-weight: 700; line-height: 1.18; }
+  .caption { position: absolute; left: 80px; width: 920px; top: 1690px; font-size: 42px; line-height: 1.4; color: #A2A4AF; }
+  .card { position: absolute; left: 40px; width: 1000px; top: 580px; height: 1040px; border-radius: 34px; overflow: hidden; background: #0C0D10; border: 2px solid #2A2C36; box-shadow: 0 40px 120px rgba(0,0,0,.6); }
+  .card img { position: absolute; left: 0; top: 0; width: 1800px; height: 1350px; transform-origin: 0 0; }
+  .brand { position: absolute; left: 80px; top: 96px; display: flex; align-items: center; gap: 18px; font-size: 40px; font-weight: 700; }
+  .bars { display: flex; flex-direction: column; gap: 6px; }
+  .bars i { display: block; height: 8px; border-radius: 4px; }
+  .chip { position: absolute; padding: 18px 34px; border-radius: 999px; font-size: 44px; font-weight: 600; background: #15161B; border: 2px solid #2A2C36; white-space: nowrap; }
+  .pill { position: absolute; padding: 16px 30px; border-radius: 999px; font-size: 38px; font-weight: 600; white-space: nowrap; }
+  #progress { position: absolute; left: 0; bottom: 0; height: 8px; background: linear-gradient(90deg, #FF6B5E, #F5B83D, #38D6B4, #8F8CFF); }
+  .lane { position: absolute; left: 300px; height: 64px; border-radius: 12px; }
+  .lane-label { position: absolute; left: 70px; width: 210px; font-family: 'IBM Plex Mono', monospace; font-size: 30px; line-height: 64px; color: #EEECE6; white-space: nowrap; }
+</style>
+</head>
+<body>
+<div id="bg">
+  <div class="blob" id="b1" style="background:#FF6B5E"></div>
+  <div class="blob" id="b2" style="background:#38D6B4"></div>
+  <div class="blob" id="b3" style="background:#8F8CFF"></div>
+</div>
+<div class="brand" id="brand"><span class="bars" id="brandbars"><i style="width:56px;background:#FF6B5E"></i><i style="width:40px;background:#F5B83D"></i><i style="width:48px;background:#38D6B4"></i><i style="width:32px;background:#8F8CFF"></i></span>Prism</div>
+<div id="scenes"></div>
+<div id="progress"></div>
+<script>
+const BAR = 2.4, BEAT = 0.6, FPS = 30;
+const CLIPS = "clips";
+const ease = (k) => k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+const outBack = (k) => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(k - 1, 3) + c1 * Math.pow(k - 1, 2); };
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const prog = (t, a, d) => clamp((t - a) / d);
+
+// Scene list (seconds). Clip scenes: clip name, rate, offset, camera keyframes [t, fx, fy, zoom] in clip pixels (1800x1350).
+const S = [
+  { id: "intro", start: 0, end: 4.8 },
+  { id: "hook", start: 4.8, end: 9.6 },
+  { id: "process", start: 9.6, end: 16.8, clip: "process", rate: 1.75, offset: 0, color: "#FF6B5E", ch: 820,
+    eyebrow: "01 · แยก stem", title: "โยนเพลงเข้าไป<br>รอแป๊บเดียว", caption: "ได้ 6 แทร็ก หรือแยกร้องนำกับคอรัสก็ได้",
+    cam: [[0, 900, 660, 1.45], [1.6, 800, 470, 2.05], [7.2, 800, 470, 2.05]] },
+  { id: "analysis", start: 16.8, end: 21.6, clip: "analysis", rate: 1.2, offset: 0.4, color: "#F5B83D",
+    eyebrow: "02 · แกะเพลง", title: "BPM คีย์ คอร์ด<br>ท่อนเพลง ครบ", caption: "กดเล่น ท่อนกับคอร์ดวิ่งตามเพลง",
+    cam: [[0, 900, 560, 1.35], [2.2, 1000, 300, 1.8], [4.8, 1050, 260, 1.9]] },
+  { id: "cut", start: 21.6, end: 28.8, clip: "cut", rate: 1.5, offset: 0, color: "#FF6B5E",
+    eyebrow: "03 · ตัดแทร็ก", title: "ดึงเฉพาะส่วน<br>ที่วงไม่ได้เล่น", caption: "ลากเลือกช่วง แล้วย้ายไปเป็นแทร็กใหม่",
+    cam: [[0, 900, 520, 1.4], [0.9, 780, 420, 1.9], [1.6, 760, 330, 1.75], [3.0, 760, 330, 1.75], [4.4, 900, 760, 1.45], [7.2, 900, 900, 1.45]] },
+  { id: "click", start: 28.8, end: 36, clip: "click", rate: 1.3, offset: 0, color: "#38D6B4",
+    eyebrow: "04 · คลิก", title: "คลิกตรง<br>กับต้นฉบับ", caption: "เพลงที่ช้าลงกลางเพลง ก็แยก BPM ให้ทีละช่วง",
+    cam: [[0, 900, 600, 1.35], [1.2, 700, 340, 1.85], [5.6, 700, 360, 1.85], [7.2, 900, 620, 1.5]] },
+  { id: "cues", start: 36, end: 43.2, clip: "cues", rate: 1.55, offset: 0, color: "#8F8CFF",
+    eyebrow: "05 · ไกด์", title: "ไกด์บอกท่อน<br>ไม่ต้องอัดเอง", caption: "135 คำ · นับเข้า 7 แบบ ลงตรงคลิก",
+    cam: [[0, 900, 600, 1.35], [0.9, 900, 380, 1.7], [5.6, 900, 380, 1.7], [7.2, 900, 640, 1.4]] },
+  { id: "routing", start: 43.2, end: 48, clip: "routing", rate: 1.3, offset: 0, color: "#5CC6FF",
+    eyebrow: "06 · in-ear", title: "คลิกหูซ้าย<br>ดนตรีออกขวา", caption: "กดปุ่มเดียว ใช้เอาต์พุตแค่ 2 ช่อง",
+    cam: [[0, 760, 330, 1.6], [1.4, 700, 300, 1.75], [2.6, 330, 640, 2.0], [4.8, 330, 820, 2.0]] },
+  { id: "export", start: 48, end: 55.2, color: "#5CC6FF",
+    eyebrow: "07 · export", title: "ลากเข้า DAW<br>ได้เลย", caption: "ทุกไฟล์ยาวเท่ากัน วางที่ 0 ตรงกันหมด" },
+  { id: "setlist", start: 55.2, end: 64.8, clip: "setlist", rate: 1.27, offset: 0, color: "#8FDC5A", ch: 720,
+    eyebrow: "08 · เล่นสด", title: "เรียงเพลงทั้งเซ็ต<br>เล่นต่อกันเอง", caption: "ตัดหัวท้ายได้ · เว้นระหว่างเพลงได้ · หยุดรอได้",
+    cam: [[0, 1000, 330, 1.28], [3, 1000, 330, 1.33], [9.6, 1000, 340, 1.33]] },
+  { id: "outro", start: 64.8, end: 74.4 },
+];
+const TOTAL = 74.4;
+
+const root = document.getElementById("scenes");
+const el = (html) => { const d = document.createElement("div"); d.innerHTML = html.trim(); return d.firstChild; };
+const nodes = {};
+for (const s of S) {
+  const node = el(`<div class="scene" id="s-${s.id}"></div>`);
+  root.append(node);
+  nodes[s.id] = node;
+  if (s.clip) {
+    node.append(el(`<div class="eyebrow" style="color:${s.color}">${s.eyebrow}</div>`));
+    node.append(el(`<div class="title">${s.title}</div>`));
+    const ch = s.ch ?? 1040;
+    node.append(el(`<div class="card" style="height:${ch}px;top:${580 + (1040 - ch) / 2}px"><img alt=""></div>`));
+    node.append(el(`<div class="caption">${s.caption}</div>`));
+  }
+}
+// intro
+nodes.intro.innerHTML = `
+  <div class="abs" id="i-bars" style="left:390px;top:640px;display:flex;flex-direction:column;gap:22px"></div>
+  <div class="abs" id="i-name" style="left:0;width:1080px;top:880px;text-align:center;font-size:220px;font-weight:700;letter-spacing:-6px">Prism</div>
+  <div class="abs" id="i-sub" style="left:0;width:1080px;top:1160px;text-align:center;font-size:46px;font-weight:600;color:#38D6B4">สำหรับคนทำ data / MD เล่นสด</div>
+  <div class="abs" id="i-sub2" style="left:0;width:1080px;top:1240px;text-align:center;font-size:40px;color:#A2A4AF">แยก stem · ทำคลิก · ใส่ไกด์ ในที่เดียว</div>`;
+const ibars = nodes.intro.querySelector("#i-bars");
+[["#FF6B5E", 300], ["#F5B83D", 214], ["#38D6B4", 256], ["#8F8CFF", 170]].forEach(([c, w]) => ibars.append(el(`<i style="display:block;height:36px;border-radius:18px;background:${c};width:${w}px"></i>`)));
+// hook
+const HOOK_CHIPS = [["แยก stem", "#FF6B5E", 160, 760], ["ทำคลิก", "#38D6B4", 560, 880], ["ใส่ไกด์", "#8F8CFF", 200, 1000], ["เติมห้องนับ", "#F5B83D", 520, 1120], ["export ให้ตรงกัน", "#5CC6FF", 170, 1240]];
+nodes.hook.innerHTML = `<div class="abs" id="h-q" style="left:80px;width:920px;top:420px;font-size:76px;font-weight:700;line-height:1.2">ทำ data เพลงนึง<br><span style="color:#A2A4AF">ต้องทำอะไรบ้าง?</span></div>
+  <div class="abs" id="h-a" style="left:80px;width:920px;top:1450px;font-size:76px;font-weight:700;line-height:1.2">ตอนนี้ให้ <span style="color:#38D6B4">Prism</span> ทำให้</div>`;
+HOOK_CHIPS.forEach(([t, c, x, y], i) => nodes.hook.append(el(`<div class="chip h-chip" style="left:${x}px;top:${y}px;border-color:${c};color:${c}">${t}</div>`)));
+// export: DAW lanes all starting at 0
+const LANES = [["drums.wav", "#F5B83D"], ["bass.wav", "#38D6B4"], ["guitar.wav", "#8FDC5A"], ["piano.wav", "#5CC6FF"], ["other.wav", "#8F8CFF"], ["vocals.wav", "#FF6B5E"], ["คอรัสฮุก.wav", "#FF6B5E"], ["click.wav", "#D8D2C4"], ["cues.wav", "#D8D2C4"]];
+nodes.export.innerHTML = `<div class="eyebrow" style="color:#5CC6FF">07 · export</div><div class="title">ลากเข้า DAW<br>ได้เลย</div>
+  <div class="abs" id="e-panel" style="left:40px;width:1000px;top:600px;height:1020px;border-radius:34px;background:#15161B;border:2px solid #2A2C36"></div>
+  <div class="abs" id="e-zero" style="left:296px;top:640px;width:4px;height:940px;background:#EEECE6"></div>
+  <div class="abs" style="left:250px;top:610px;font-family:'IBM Plex Mono',monospace;font-size:28px;color:#A2A4AF" id="e-zlabel">0:00</div>
+  <div class="caption">ทุกไฟล์ยาวเท่ากัน วางที่ 0 ตรงกันหมด</div>`;
+LANES.forEach(([name, c], i) => {
+  const y = 690 + i * 98;
+  nodes.export.append(el(`<div class="lane-label e-label" style="top:${y}px">${name}</div>`));
+  nodes.export.append(el(`<div class="lane e-lane" style="top:${y}px;width:680px;background:${c};opacity:.85"></div>`));
+});
+// routing pills
+nodes.routing.append(el(`<div class="pill" id="r-l" style="left:80px;top:1560px;background:#F4EFE3;color:#14151A">L · คลิก + ไกด์</div>`));
+nodes.routing.append(el(`<div class="pill" id="r-r" style="left:560px;top:1560px;background:#38D6B4;color:#0C0D10">R · ดนตรี</div>`));
+// outro
+nodes.outro.innerHTML = `
+  <div class="abs" id="o-bars" style="left:430px;top:520px;display:flex;flex-direction:column;gap:18px"></div>
+  <div class="abs" id="o-name" style="left:0;width:1080px;top:720px;text-align:center;font-size:180px;font-weight:700;letter-spacing:-5px">Prism</div>
+  <div class="abs" id="o-free" style="left:340px;width:400px;top:980px;text-align:center;font-size:64px;font-weight:700;background:#F4EFE3;color:#14151A;border-radius:999px;padding:14px 0">แจกฟรี</div>
+  <div class="abs" id="o-l1" style="left:0;width:1080px;top:1180px;text-align:center;font-size:46px;font-weight:600">รันบน Mac ของเราเอง</div>
+  <div class="abs" id="o-l2" style="left:0;width:1080px;top:1250px;text-align:center;font-size:42px;color:#A2A4AF">ไม่ต้องอัปโหลดเพลงขึ้นเน็ต</div>
+  <div class="abs" id="o-l3" style="left:0;width:1080px;top:1430px;text-align:center;font-size:44px;font-weight:600;color:#38D6B4">ลิงก์ดาวน์โหลดอยู่ในโพสต์ 👇</div>`;
+const obars = nodes.outro.querySelector("#o-bars");
+[["#FF6B5E", 220], ["#F5B83D", 156], ["#38D6B4", 188], ["#8F8CFF", 124]].forEach(([c, w]) => obars.append(el(`<i style="display:block;height:26px;border-radius:13px;background:${c};width:${w}px"></i>`)));
+
+const set = (n, o, tx = 0, ty = 0, sc = 1) => { n.style.opacity = o; n.style.transform = `translate(${tx}px,${ty}px) scale(${sc})`; };
+
+function camera(s, t) {
+  const k = s.cam;
+  let i = 0;
+  while (i < k.length - 2 && t > k[i + 1][0]) i++;
+  const [t0, x0, y0, z0] = k[i], [t1, x1, y1, z1] = k[Math.min(i + 1, k.length - 1)];
+  const e = t1 > t0 ? ease(clamp((t - t0) / (t1 - t0))) : 1;
+  return [x0 + (x1 - x0) * e, y0 + (y1 - y0) * e, z0 + (z1 - z0) * e];
+}
+
+async function renderAt(t) {
+  // background drift and beat pulse
+  const b = (id, x, y) => { document.getElementById(id).style.transform = `translate(${x}px,${y}px)`; };
+  b("b1", -300 + 120 * Math.sin(t * 0.21), -200 + 160 * Math.cos(t * 0.17));
+  b("b2", 500 + 140 * Math.cos(t * 0.19), 700 + 180 * Math.sin(t * 0.13));
+  b("b3", -200 + 160 * Math.sin(t * 0.15 + 1), 1300 + 140 * Math.cos(t * 0.2));
+  const beatK = (t % BEAT) / BEAT;
+  document.getElementById("brandbars").style.transform = `scaleX(${1 + 0.12 * Math.exp(-beatK * 6)})`;
+  document.getElementById("brandbars").style.transformOrigin = "left center";
+  document.getElementById("progress").style.width = `${(t / TOTAL) * 1080}px`;
+  const brandOn = t > 4.4 && t < 64.6;
+  document.getElementById("brand").style.opacity = brandOn ? Math.min(prog(t, 4.4, 0.4), 1 - prog(t, 64.2, 0.4)) : 0;
+
+  const loads = [];
+  for (const s of S) {
+    const node = nodes[s.id];
+    const lt = t - s.start, len = s.end - s.start;
+    if (t < s.start - 0.01 || t >= s.end + 0.3) { node.style.opacity = 0; node.style.display = "none"; continue; }
+    node.style.display = "block";
+    const fin = prog(lt, 0, 0.35), fout = 1 - prog(lt, len - 0.05, 0.3);
+    node.style.opacity = Math.min(fin, fout);
+    if (s.clip) {
+      const q = (sel) => node.querySelector(sel);
+      const a = ease(prog(lt, 0, 0.5)), a2 = ease(prog(lt, 0.12, 0.5)), a3 = ease(prog(lt, 0.3, 0.6));
+      set(q(".eyebrow"), a, 0, 40 * (1 - a));
+      set(q(".title"), a2, 0, 60 * (1 - a2));
+      set(q(".caption"), a3, 0, 40 * (1 - a3));
+      const card = q(".card");
+      const c = outBack(clamp(prog(lt, 0.05, 0.55)));
+      set(card, prog(lt, 0.05, 0.3), 0, 80 * (1 - c), 0.94 + 0.06 * c);
+      // clip frame
+      const info = window.CLIP_INFO[s.clip];
+      const ct = clamp(s.offset + lt * s.rate, 0, info.frames / FPS - 0.001);
+      const frame = Math.min(info.frames, Math.floor(ct * FPS) + 1);
+      const img = q(".card img");
+      const src = `${CLIPS}/${s.clip}/seq/${String(frame).padStart(5, "0")}.jpg`;
+      if (!img.src.endsWith(src)) { img.src = src; loads.push(img.decode().catch(() => {})); }
+      const [fx, fy, z] = camera(s, lt);
+      const W = 1000, Hc = s.ch ?? 1040, sc = (W / 1800) * z;
+      let tx = W / 2 - fx * sc, ty = Hc / 2 - fy * sc;
+      tx = Math.min(0, Math.max(W - 1800 * sc, tx));
+      ty = 1350 * sc < Hc ? (Hc - 1350 * sc) / 2 : Math.min(0, Math.max(Hc - 1350 * sc, ty));
+      img.style.transform = `translate(${tx}px,${ty}px) scale(${sc})`;
+    }
+    if (s.id === "intro") {
+      [...ibars.children].forEach((bar, i) => { const k = outBack(prog(lt, 0.2 + i * 0.15, 0.5)); bar.style.transform = `scaleX(${Math.max(0, k)})`; bar.style.transformOrigin = "left"; });
+      const n = ease(prog(lt, 0.9, 0.7)); set(node.querySelector("#i-name"), n, 0, 50 * (1 - n));
+      const u = ease(prog(lt, 1.6, 0.6)); set(node.querySelector("#i-sub"), u, 0, 30 * (1 - u));
+      const v = ease(prog(lt, 2.0, 0.6)); set(node.querySelector("#i-sub2"), v, 0, 30 * (1 - v));
+      set(ibars, 1 - prog(lt, 4.3, 0.4), 0, 0, 1);
+    }
+    if (s.id === "hook") {
+      const qn = ease(prog(lt, 0, 0.5)); set(node.querySelector("#h-q"), qn, 0, 40 * (1 - qn));
+      node.querySelectorAll(".h-chip").forEach((chip, i) => { const k = prog(lt, 0.6 + i * 0.6, 0.35); set(chip, clamp(k * 2), 0, 0, 0.6 + 0.4 * outBack(k)); });
+      const an = ease(prog(lt, 3.6, 0.5)); set(node.querySelector("#h-a"), an, 0, 40 * (1 - an));
+    }
+    if (s.id === "export") {
+      const q = (sel) => node.querySelector(sel);
+      const a = ease(prog(lt, 0, 0.5)), a2 = ease(prog(lt, 0.12, 0.5));
+      set(q(".eyebrow"), a, 0, 40 * (1 - a)); set(q(".title"), a2, 0, 60 * (1 - a2));
+      set(q("#e-panel"), prog(lt, 0.1, 0.3), 0, 0, 1);
+      set(q(".caption"), ease(prog(lt, 3.6, 0.6)), 0, 0, 1);
+      const zero = prog(lt, 2.8, 0.3);
+      set(q("#e-zero"), zero * (0.6 + 0.4 * Math.abs(Math.sin(lt * 6))), 0, 0, 1);
+      set(q("#e-zlabel"), zero, 0, 0, 1);
+      node.querySelectorAll(".e-lane").forEach((lane, i) => {
+        const k = ease(prog(lt, 0.5 + i * 0.22, 0.6));
+        // lanes arrive a little apart, then all snap to 0
+        const snap = ease(prog(lt, 2.8, 0.5));
+        const jitter = [60, 140, 20, 100, 180, 40, 120, 80, 160][i] * (1 - snap);
+        set(lane, k, 700 * (1 - k) + jitter, 0, 1);
+      });
+      node.querySelectorAll(".e-label").forEach((l, i) => set(l, ease(prog(lt, 0.5 + i * 0.22, 0.4)), 0, 0, 1));
+    }
+    if (s.id === "routing") {
+      const l = outBack(prog(lt, 1.0, 0.4)), r = outBack(prog(lt, 1.2, 0.4));
+      set(node.querySelector("#r-l"), clamp(l), 0, 0, 0.7 + 0.3 * l);
+      set(node.querySelector("#r-r"), clamp(r), 0, 0, 0.7 + 0.3 * r);
+      node.querySelector(".caption").style.top = "1700px";
+    }
+    if (s.id === "outro") {
+      [...obars.children].forEach((bar, i) => { const k = outBack(prog(lt, 0.2 + i * 0.12, 0.5)); bar.style.transform = `scaleX(${Math.max(0, k)})`; bar.style.transformOrigin = "left"; });
+      const n = ease(prog(lt, 0.6, 0.6)); set(node.querySelector("#o-name"), n, 0, 40 * (1 - n));
+      const f = outBack(prog(lt, 1.4, 0.45)); set(node.querySelector("#o-free"), clamp(f), 0, 0, 0.6 + 0.4 * f);
+      for (const [id, d] of [["#o-l1", 2.2], ["#o-l2", 2.5], ["#o-l3", 3.4]]) { const k = ease(prog(lt, d, 0.5)); set(node.querySelector(id), k, 0, 30 * (1 - k)); }
+      node.style.opacity = Math.min(prog(lt, 0, 0.35), 1 - prog(lt, 8.6, 1.0));
+    }
+  }
+  await Promise.all(loads);
+  return true;
+}
+window.renderAt = renderAt;
+window.TOTAL = TOTAL;
+</script>
+</body>
+</html>
