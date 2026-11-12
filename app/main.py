@@ -1,4 +1,4 @@
-"""Stem Studio local server: upload, queue, separate, analyze, serve."""
+"""Prism local server: upload, queue, separate, analyze, serve."""
 from __future__ import annotations
 
 import json
@@ -44,7 +44,7 @@ ALLOWED_SUFFIXES = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".
 JOB_ID = re.compile(r"^[0-9a-f]{12}$")
 ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
 
-app = FastAPI(title="Stem Studio")
+app = FastAPI(title="Prism")
 jobs: dict[str, dict] = {}
 jobs_lock = threading.Lock()
 work_queue: queue.Queue[str] = queue.Queue()

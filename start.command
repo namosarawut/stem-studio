@@ -1,5 +1,5 @@
 #!/bin/bash
-# Double-click to run Stem Studio. Sets itself up on first launch.
+# Double-click to run Prism. Sets itself up on first launch.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -34,7 +34,7 @@ if ! .venv/bin/python -c "import demucs, fastapi, librosa, audio_separator, psut
 fi
 
 if curl -fsS "$URL/api/system" >/dev/null 2>&1; then
-  echo "Stem Studio ทำงานอยู่แล้วที่ $URL"
+  echo "Prism ทำงานอยู่แล้วที่ $URL"
   open "$URL"
   exit 0
 fi
@@ -44,5 +44,5 @@ fi
     sleep 0.5
   done ) &
 
-echo "Stem Studio: $URL  (ปิดหน้าต่างนี้หรือกด Ctrl+C เพื่อหยุด)"
+echo "Prism: $URL  (ปิดหน้าต่างนี้หรือกด Ctrl+C เพื่อหยุด)"
 exec .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port "$PORT" --log-level warning

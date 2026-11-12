@@ -624,7 +624,7 @@ async function showStudio(job, keep = null) {
 
   $("song-title").textContent = job.title;
   $("song-sub").textContent = `${modelTitle(job.model)} · ประมวลผล ${fmtTime(job.elapsed ?? 0)} นาที บน ${job.device}`;
-  document.title = `${job.title} · Stem Studio`;
+  document.title = `${job.title} · Prism`;
   $("time-total").textContent = fmtTime(analysis.duration);
   if (!keep) $("time-now").textContent = "0:00";
   $("btn-zip").href = `/api/jobs/${job.id}/download.zip`;
@@ -2484,7 +2484,7 @@ async function showStudio(job, keep = null) {
     $("btn-zip").onclick = null;
     cancelAnimationFrame(frame);
     mixer.destroy();
-    document.title = "Stem Studio";
+    document.title = "Prism";
   };
 
   renderSelectionBar();
