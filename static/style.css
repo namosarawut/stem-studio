@@ -543,3 +543,11 @@ select.edit-input { width: auto; font-family: var(--sans); }
   .pl-item.open .pl-stop-after { display: inline-flex; }
   .pl-handle { display: none; }
 }
+
+/* Studio: add to setlist */
+.add-pl-title { flex: 1; font-size: 15px; }
+.add-pl-mix { padding: 10px 14px 4px; }
+.add-pl-new { display: flex; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--line); }
+.add-pl-new .lib-search { flex: 1; width: auto; height: 30px; }
+.add-pl-new .btn { height: 30px; font-size: 13px; }
+.pl-pick .btn.done { border-color: var(--bass); color: var(--bass); }

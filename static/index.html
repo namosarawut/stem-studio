@@ -106,6 +106,7 @@
       </div>
 
       <div class="actions">
+        <button class="btn" id="btn-add-playlist" disabled>เพิ่มลงเพลย์ลิสต์</button>
         <button class="btn" id="btn-export" disabled>ส่งออกมิกซ์</button>
         <a class="btn btn-primary" id="btn-zip">ดาวน์โหลด stem</a>
       </div>
@@ -323,6 +324,20 @@
   </div>
 
   <div class="toast" id="toast" role="alert" hidden></div>
+
+  <dialog class="pl-dialog" id="add-pl" aria-label="เพิ่มลงเพลย์ลิสต์">
+    <div class="pl-dialog-head">
+      <strong class="add-pl-title">เพิ่มลงเพลย์ลิสต์</strong>
+      <button class="icon-btn small" id="add-pl-close" aria-label="ปิด">×</button>
+    </div>
+    <label class="pl-check add-pl-mix"><input type="checkbox" id="add-pl-use-mix" checked> ใช้มิกซ์ตอนนี้: แทร็กที่ปิดหรือโซโล่ และลำโพงซ้าย-ขวา</label>
+    <ul class="pl-picker-list" id="add-pl-list"></ul>
+    <div class="add-pl-new">
+      <input class="edit-input lib-search" id="add-pl-name" placeholder="ชื่อเพลย์ลิสต์ใหม่" aria-label="ชื่อเพลย์ลิสต์ใหม่" maxlength="120">
+      <button class="btn" id="add-pl-create">สร้างแล้วเพิ่ม</button>
+    </div>
+    <p class="pl-picker-note" id="add-pl-note">ระดับเสียงของแต่ละแทร็กไม่ถูกนำไปด้วย ในเพลย์ลิสต์แต่ละแทร็กเปิดหรือปิดได้อย่างเดียว</p>
+  </dialog>
 
   <!-- Setlists -->
   <div id="view-playlists" class="view setlists" hidden>

@@ -631,6 +631,7 @@ async function showStudio(job, keep = null) {
   $("btn-zip").setAttribute("download", "");
   $("btn-play").disabled = true;
   $("btn-export").disabled = true;
+  $("btn-add-playlist").disabled = true;
   setPlayingUi(false);
   setLoopUi(false);
 
@@ -2421,6 +2422,7 @@ async function showStudio(job, keep = null) {
   document.addEventListener("keydown", (event) => {
     const tag = event.target.tagName;
     if (tag === "INPUT" || tag === "BUTTON" || tag === "A" || tag === "SELECT") return;
+    if (event.target.closest?.("dialog")) return;
     if (event.key === "Escape" && selection) { selection = null; renderSelectionBar(); drawBase(); return; }
     if (selectedCue !== null && (event.code === "Delete" || event.code === "Backspace")) { event.preventDefault(); deleteCue(selectedCue); return; }
     if (event.key === "Escape" && (selectedCue !== null || !$("cue-panel").hidden)) { selectCue(null); $("cue-panel").hidden = true; return; }
@@ -2437,6 +2439,15 @@ async function showStudio(job, keep = null) {
     else if (event.code === "ArrowRight") { event.preventDefault(); seekTo(mixer.position() + 5); }
     else if (event.key === "l" || event.key === "L") toggleLoop();
     else if (event.key === "c" || event.key === "C") toggleClick();
+  }, on);
+
+  $("btn-add-playlist").addEventListener("click", async () => {
+    await flushGrid();  // the setlist renders from the saved metronome and cues
+    openAddToPlaylist(job, () => ({
+      // Silent here (muted, or left out by a solo) means off in the setlist mix.
+      muted: [...mixer.tracks.values()].filter((t) => mixer.effectiveGain(t) === 0).map((t) => t.id).sort(),
+      pan: Object.fromEntries([...mixer.tracks.values()].filter((t) => t.pan !== "C").map((t) => [t.id, t.pan])),
+    }));
   }, on);
 
   $("btn-export").addEventListener("click", async () => {
@@ -2510,6 +2521,7 @@ async function showStudio(job, keep = null) {
     note.textContent = "";
     $("btn-play").disabled = false;
     $("btn-export").disabled = false;
+    $("btn-add-playlist").disabled = false;
     drawBase();
     if (keep?.playing) {
       await mixer.play(keep.position);

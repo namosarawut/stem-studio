@@ -1198,3 +1198,93 @@ function plImportDeleteButton(entry) {
   });
   return button;
 }
+
+// ------------------------------------------------------------------ add from the song page
+
+let addPl = null;   // { job, mix: () => {muted, pan}, lists, added: Map(id -> count) }
+
+/** Open the "add to setlist" dialog for a finished song. `mix` reads the studio's
+ * current mute/solo and left/right state when the user confirms. */
+async function openAddToPlaylist(job, mix) {
+  const dialog = $("add-pl");
+  addPl = { job, mix, lists: [], added: new Map() };
+  if (!dialog.dataset.wired) {
+    dialog.dataset.wired = "1";
+    $("add-pl-close").addEventListener("click", () => dialog.close());
+    dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
+    $("add-pl-create").addEventListener("click", () => addPlCreate());
+    $("add-pl-name").addEventListener("keydown", (event) => { if (event.key === "Enter") addPlCreate(); });
+  }
+  $("add-pl-name").value = "";
+  $("add-pl-list").replaceChildren(el("li", { class: "pl-pick" }, el("span", { class: "pl-meta" }, "กำลังโหลด…")));
+  dialog.showModal();
+  try {
+    addPl.lists = await api("/api/playlists");
+  } catch (error) {
+    toast(error.message);
+  }
+  addPlRender();
+}
+
+function addPlRender() {
+  const box = $("add-pl-list");
+  if (!addPl.lists.length) {
+    box.replaceChildren(el("li", { class: "pl-pick" }, el("span", { class: "pl-meta" }, "ยังไม่มีเพลย์ลิสต์ พิมพ์ชื่อด้านล่างเพื่อสร้างใหม่")));
+    $("add-pl-name").focus();
+    return;
+  }
+  box.replaceChildren(...addPl.lists.map((entry) => {
+    const done = addPl.added.get(entry.id);
+    const button = el("button", { class: `btn${done ? " done" : ""}` }, done ? `เพิ่มแล้ว ✓${done > 1 ? ` ×${done}` : ""}` : "เพิ่ม");
+    button.addEventListener("click", () => addPlAdd(entry.id, button));
+    const open = el("a", { class: "lib-delete", href: `#/playlists/${entry.id}` }, "เปิด");
+    open.addEventListener("click", () => $("add-pl").close());
+    return el("li", { class: "pl-pick" },
+      el("span", { class: "pl-pick-text" }, el("span", { class: "pl-title" }, entry.name), el("span", { class: "pl-meta" }, `${entry.count} เพลง`)),
+      open, button);
+  }));
+}
+
+async function addPlAdd(playlistId, button = null) {
+  const { job } = addPl;
+  const item = {
+    id: plNewId(), kind: "project", ref: job.id, title: job.title, start: 0, end: null, stop_after: false, fade_in: 0, fade_out: 0,
+    mix: $("add-pl-use-mix").checked ? addPl.mix() : plDefaultMix(job.id),
+  };
+  if (button) { button.disabled = true; button.textContent = "กำลังเพิ่ม…"; }
+  try {
+    // A setlist open in this tab (maybe playing) is the live copy: add to that one.
+    const live = [pl.playing, pl.shown].find((list) => list?.id === playlistId);
+    const list = live ?? await api(`/api/playlists/${playlistId}`);
+    list.items.push(item);
+    const saved = await api(`/api/playlists/${playlistId}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: list.name, auto_advance: list.auto_advance, gap: list.gap, items: list.items }),
+    });
+    if (live && pl.playing === live) plPlayer.replan();
+    const entry = addPl.lists.find((p) => p.id === playlistId);
+    if (entry) entry.count = saved.items.length;
+    const summary = pl.lists.find((p) => p.id === playlistId);
+    if (summary) summary.count = saved.items.length;
+    addPl.added.set(playlistId, (addPl.added.get(playlistId) ?? 0) + 1);
+    toast(`เพิ่ม "${job.title}" ลง ${saved.name} แล้ว (เพลงที่ ${saved.items.length})`);
+  } catch (error) {
+    toast(`เพิ่มไม่สำเร็จ: ${error.message}`);
+  }
+  addPlRender();
+}
+
+async function addPlCreate() {
+  const name = $("add-pl-name").value.trim();
+  try {
+    const created = await api("/api/playlists", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name || `เพลย์ลิสต์ ${addPl.lists.length + 1}` }),
+    });
+    addPl.lists.unshift({ id: created.id, name: created.name, count: 0, updated_at: created.updated_at });
+    pl.lists.unshift({ id: created.id, name: created.name, count: 0, updated_at: created.updated_at });
+    $("add-pl-name").value = "";
+    await addPlAdd(created.id);
+  } catch (error) {
+    toast(error.message);
+  }
+}
