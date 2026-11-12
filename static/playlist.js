@@ -919,6 +919,7 @@ function plMixEditor(item) {
       preset("เปิดทุกแทร็ก", () => { item.mix.muted = []; }),
       preset("ปิดเสียงร้อง", () => { item.mix.muted = [...new Set([...item.mix.muted, ...stems.filter((s) => /vocal/.test(s.id)).map((s) => s.id)])].sort(); }),
       guides.length ? preset("คิว+เมโทรนอม ซ้าย · ดนตรี ขวา", () => { item.mix.pan = Object.fromEntries([...guides.map((id) => [id, "L"]), ...others.map((id) => [id, "R"])]); }) : null,
+      guides.length ? preset("คิว+เมโทรนอม ขวา · ดนตรี ซ้าย", () => { item.mix.pan = Object.fromEntries([...guides.map((id) => [id, "R"]), ...others.map((id) => [id, "L"])]); }) : null,
       preset("ทุกแทร็กตรงกลาง", () => { item.mix.pan = {}; }),
     );
   }).catch((error) => grid.replaceChildren(el("span", { class: "pl-missing" }, error.message)));
