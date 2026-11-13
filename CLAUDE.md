@@ -83,5 +83,6 @@ Improvement backlog and known gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
 ## Repo rules
 
 - `data/`, `models/`, `.venv/`, `.claude/` are git-ignored. Never commit audio or user data.
-- Commit or push only when the user asks.
+- Commit or push only when the user asks. Commit messages carry no AI attribution: no
+  `Co-Authored-By: Claude …` trailer and no "Generated with Claude Code" line (the user's rule).
 - The user writes in Thai; answer in Thai.
