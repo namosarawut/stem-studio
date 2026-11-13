@@ -5,6 +5,10 @@ who prepare backing "data" / act as MD for live shows: AI stem separation, song 
 editable click track, spoken cue/count-in track, lead-in bars, region cuts into new tracks, L/R
 routing, export, and a setlist player. UI text is Thai; keep new UI copy in natural spoken Thai.
 
+**New to this repo? Read [docs/CONTEXT.md](docs/CONTEXT.md) first.** It is the full handoff: hard rules
+(§0, read before touching anything), architecture, data schemas, API, invariants, how to test safely,
+decision history and what to work on next. This file is the short version.
+
 Improvement backlog and known gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Run
