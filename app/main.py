@@ -34,7 +34,7 @@ from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
-from . import cues as cue_track, playlists, project, separator  # noqa: E402
+from . import cues as cue_track, midi, playlists, project, separator  # noqa: E402
 from .analyzer import ANALYSIS_VERSION, STEM_THAI, _peaks, analyze  # noqa: E402
 from .metronome import render_click  # noqa: E402
 from .monitor import ResourceMonitor  # noqa: E402
@@ -624,6 +624,32 @@ def read_stem(job_id: str, stem: str) -> FileResponse:
     return FileResponse(project.serve_path(folder, stem, edits), media_type="audio/wav", filename=f"{label}.wav")
 
 
+def write_tempo_midi(job: dict, folder: Path, edits: dict) -> Path:
+    """The metronome as a MIDI tempo map on the export timeline, rebuilt on every request
+    because it is small and depends on the grid, the lead-in and the sections."""
+    analysis = read_analysis_file(job["id"])
+    lead = project.lead_seconds(edits)
+    sections = [{**s, "start": s["start"] + lead} for s in analysis.get("sections", [])]
+    data = midi.tempo_map(project.timeline_grid(analysis, edits), sections, job["title"])
+    path = folder / "tempo.mid"
+    temporary = path.with_suffix(".tmp")
+    temporary.write_bytes(data)
+    temporary.replace(path)
+    return path
+
+
+@app.get("/api/jobs/{job_id}/tempo.mid")
+def download_tempo_midi(job_id: str) -> FileResponse:
+    job = editable_job(job_id)
+    folder = job_dir(job_id)
+    with edit_lock:
+        try:
+            path = write_tempo_midi(job, folder, project.load_edits(folder))
+        except ValueError as error:
+            raise HTTPException(422, str(error))
+    return FileResponse(path, media_type="audio/midi", filename=f"{job['title']} - tempo.mid")
+
+
 @app.get("/api/jobs/{job_id}/download.zip")
 def download_zip(job_id: str) -> FileResponse:
     job = get_job(job_id)
@@ -646,6 +672,11 @@ def download_zip(job_id: str) -> FileResponse:
                     used.add(label)
                     # Inside the zip, files are named by instrument only; the zip carries the song name.
                     bundle.write(project.serve_path(folder, stem, edits), f"{label}.wav")
+                if "click" in job["stems"]:
+                    try:  # the DAW's bar grid, matching click.wav
+                        bundle.write(write_tempo_midi(job, folder, edits), "tempo.mid")
+                    except ValueError:
+                        pass
             temporary.replace(archive)
     return FileResponse(archive, media_type="application/zip", filename=f"{job['title']} - stems.zip")
 

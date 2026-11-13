@@ -629,6 +629,8 @@ async function showStudio(job, keep = null) {
   if (!keep) $("time-now").textContent = "0:00";
   $("btn-zip").href = `/api/jobs/${job.id}/download.zip`;
   $("btn-zip").setAttribute("download", "");
+  $("btn-midi").href = `/api/jobs/${job.id}/tempo.mid`;
+  $("btn-midi").setAttribute("download", "");
   $("btn-play").disabled = true;
   $("btn-export").disabled = true;
   $("btn-add-playlist").disabled = true;
@@ -2412,6 +2414,7 @@ async function showStudio(job, keep = null) {
     setZoom(zoomIndex + direction, (event.clientX - rect.left + scrollOf()) / view.pps);
   }, { signal: loader.signal, passive: false });
   $("btn-zip").onclick = holdUntilClickSaved;
+  $("btn-midi").onclick = holdUntilClickSaved;
 
   // A clicked button keeps focus, which would make Space re-trigger it instead of playing.
   document.addEventListener("pointerup", (event) => {

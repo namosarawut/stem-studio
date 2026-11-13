@@ -71,6 +71,7 @@ Browser (vanilla JS, ไม่มี build)  ──HTTP──▶  FastAPI (app/m
 | `app/project.py` | ~410 | โมเดลการแก้ไข: click grid, cuts, custom tracks, lead-in, `merged_view` ให้ UI |
 | `app/cues.py` | ~350 | ไลบรารีวลี, `COUNT_STYLES`, TTS ด้วย `say` + cache, `render` แทร็ก cue |
 | `app/metronome.py` | ~48 | `write_wav_atomic`, `render_click` |
+| `app/midi.py` | ~140 | `tempo_map`: ไฟล์ MIDI จากกริดเมโทรนอม (ดู §7) |
 | `app/monitor.py` | ~210 | รายงานทรัพยากรต่อ job (CPU, RAM, GPU ผ่าน `ioreg`, ดิสก์) |
 | `app/playlists.py` | ~250 | เพลย์ลิสต์, ไฟล์นำเข้า, `render_mix` (เรนเดอร์มิกซ์โปรเจกต์ไว้เล่น) |
 | `static/index.html` | ~425 | โครงทุกหน้า (home, processing, studio, playlists) + dialog |
@@ -95,6 +96,7 @@ data/jobs/<id 12 hex>/
   edited/              ผลการตัดช่วง (เรนเดอร์จาก ops)
   padded/              stem ที่เติมความเงียบหน้าเพลงตาม lead-in
   cues_render.json     peaks และตำแหน่งบีตที่นับของแทร็ก cue
+  tempo.mid            tempo map (สร้างใหม่ทุกครั้งที่ดาวน์โหลด)
   playback/<key>.wav|json   มิกซ์สำหรับเพลย์ลิสต์ (เก็บ 6 อันล่าสุด)
   stems.zip            cache ของ export (ถูกลบทุกครั้งที่เนื้อหา export เปลี่ยน)
 data/library/<id>/     ไฟล์นำเข้า: audio.wav + meta.json (มี peaks) (สร้างตอนนำเข้าครั้งแรก)
@@ -124,7 +126,7 @@ models/                น้ำหนักโมเดล (TORCH_HOME) + model
 | ห้องนับ | `PUT /api/jobs/{id}/lead-in` |
 | cue | `GET /api/cues/library`, `GET /api/cues/preview`, `PUT /api/jobs/{id}/cues` |
 | ตัดช่วง/แทร็ก | `POST /api/jobs/{id}/cuts`, `DELETE .../cuts/last`, `PATCH/DELETE .../tracks/{tid}` |
-| เสียง/ส่งออก | `GET /api/jobs/{id}/stems/{stem}.wav`, `GET .../download.zip` |
+| เสียง/ส่งออก | `GET /api/jobs/{id}/stems/{stem}.wav`, `GET .../tempo.mid`, `GET .../download.zip` (มี `tempo.mid` ด้วย) |
 | ไลบรารีนำเข้า | `GET/POST /api/library`, `GET/DELETE /api/library/{id}`, `GET .../audio.wav` |
 | เล่นเพลย์ลิสต์ | `POST /api/jobs/{id}/playback`, `GET .../playback/{key}.wav` |
 | เพลย์ลิสต์ | `GET/POST /api/playlists`, `GET/PUT/DELETE /api/playlists/{id}` |
@@ -149,6 +151,8 @@ models/                น้ำหนักโมเดล (TORCH_HOME) + model
 **นับเข้า (count-in)**: วางเทียบกับบีตที่ใกล้ที่สุด (ในระยะ 0.4 × ช่วงบีต) จึงอยู่รอดเมื่อแก้ grid, เมโทรนอมเปลี่ยนแล้วต้อง re-render cue; สไตล์ `gap1/2/3` สร้างจาก `[คำ] + [None]*gap` ต่อเลข
 
 **การเขียนไฟล์แบบ atomic ทุกที่** (`write_wav_atomic`, `project._swap_dir`, `playlists.write_json_atomic`, `save_edits`): เบราว์เซอร์อาจกำลังดาวน์โหลดไฟล์ตอนมันถูกสร้างใหม่
+
+**MIDI tempo map** (`midi.tempo_map`, ปุ่ม "Tempo map" และใน ZIP): SMF type 1, PPQ 960 สร้างจาก `timeline_grid` (เวลาเดียวกับ WAV ที่ export) แทร็ก 1 มี tempo หนึ่งค่าต่อหนึ่งบีต (ปัดจากผลรวมสะสม คลาดไม่ถึง 1 µs) + time signature + marker ชื่อท่อน แทร็ก 2 มีโน้ตคลิกทุกบีต (ช่อง 10, ตัวเน้นโน้ต 76) ช่วงก่อนบีตแรกเติมบีตตามความเร็วเปิดเพลง และใส่ห้องสั้น (เช่น 2/4) ให้ห้องแรกของเพลงตรงห้องใน DAW ห้องที่ยาวไม่เท่า meter ได้ time signature ของตัวเอง
 
 **ซ้าย/ขวา (routing)**: เลือก L หรือ R จะรวมแทร็กเป็นโมโนด้วย (L+R)/2 เพื่อให้เสียงกลางคงระดับ กฎเดียวกันทั้งฝั่งเบราว์เซอร์ (`makeRoute` ใน app.js) และฝั่ง server (`playlists.render_mix`) **ต้องแก้คู่กันเสมอ** ค่าที่ตั้งในหน้าเพลงเก็บใน localStorage ต่อเพลง
 
@@ -207,7 +211,7 @@ STEM_STUDIO_DATA=/tmp/prism-test/data .venv/bin/python -m uvicorn app.main:app -
 3. โหมดร้องนำ+คอรัส (`mel_band_roformer_karaoke_aufr33_viperx`) ไม่พบไลเซนส์: ขออนุญาตผู้ทำ หรือปิดในเวอร์ชันแจก
 
 **ฟีเจอร์ (ผู้ใช้เห็นด้วยว่าเป็นช่องว่างสำหรับงานใหญ่)**
-- P1 (แนะนำทำก่อน): export ไฟล์ MIDI tempo map จาก `project.click_grid` + เลือก 48 kHz/24-bit (ตอนนี้ 44.1 kHz/16-bit)
+- P1 (แนะนำทำก่อน): ~~export ไฟล์ MIDI tempo map~~ (ทำแล้ว `app/midi.py`) เหลือ: เลือก 48 kHz/24-bit (ตอนนี้ 44.1 kHz/16-bit)
 - P2: เพลย์ลิสต์หลายช่องเอาต์พุต (`setSinkId`, ChannelMerger) — ต้องเปลี่ยนจากมิกซ์สเตอริโอที่ server เป็นโหลดแยก stem
 - P3: โหมดโชว์ (footswitch/Web MIDI, ล็อกหน้าจอ, `beforeunload`, Wake Lock)
 - P4/P5: timecode (LTC/MTC), ระบบสำรอง — อาจเกินขอบเขต ให้ DAW ทำ

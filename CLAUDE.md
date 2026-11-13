@@ -43,6 +43,7 @@ Improvement backlog and known gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
 | `app/project.py` | Non-destructive edit model: click grid, cuts, custom tracks, lead-in, merged view for the UI |
 | `app/cues.py` | Cue library (135 phrases, 6 categories), count-in styles, `say` TTS cache, cue track render |
 | `app/metronome.py` | `write_wav_atomic`, click track render |
+| `app/midi.py` | MIDI tempo map export (tempo per beat, time signatures, section markers, click notes) |
 | `app/monitor.py` | Per-job resource report (CPU, RAM, GPU via `ioreg`, disk) |
 | `app/playlists.py` | Setlists, imported files (`data/library`), server-rendered project mixes for playback |
 | `static/app.js` | Router, home, processing view, studio (Mixer class, timeline canvas, metronome editor, cues, cuts, lead-in, routing, export) |
@@ -53,7 +54,7 @@ Improvement backlog and known gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 - `data/jobs/<id>/`: `meta.json`, `source.*`, `stems/*.wav` (never modified after separation),
   `analysis.json`, `edits.json`, `edited/` (cut results), `padded/` (stems with lead-in silence),
-  `cues_render.json`, `playback/<key>.wav|json` (setlist mixes, newest 6 kept), `stems.zip` (cache,
+  `cues_render.json`, `tempo.mid` (rebuilt on each download), `playback/<key>.wav|json` (setlist mixes, newest 6 kept), `stems.zip` (cache,
   deleted whenever edits change export content).
 - `data/library/<id>/`: imported file as `audio.wav` + `meta.json` (with peaks).
 - `data/playlists/<id>.json`: `{name, auto_advance, gap, items: [{id, kind: file|project, ref, title,
