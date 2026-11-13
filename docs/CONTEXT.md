@@ -152,7 +152,7 @@ models/                น้ำหนักโมเดล (TORCH_HOME) + model
 
 **การเขียนไฟล์แบบ atomic ทุกที่** (`write_wav_atomic`, `project._swap_dir`, `playlists.write_json_atomic`, `save_edits`): เบราว์เซอร์อาจกำลังดาวน์โหลดไฟล์ตอนมันถูกสร้างใหม่
 
-**MIDI tempo map** (`midi.tempo_map`, ปุ่ม "Tempo map" และใน ZIP): SMF type 1, PPQ 960 สร้างจาก `timeline_grid` (เวลาเดียวกับ WAV ที่ export) แทร็ก 1 มี tempo หนึ่งค่าต่อหนึ่งบีต (ปัดจากผลรวมสะสม คลาดไม่ถึง 1 µs) + time signature + marker ชื่อท่อน แทร็ก 2 มีโน้ตคลิกทุกบีต (ช่อง 10, ตัวเน้นโน้ต 76) ช่วงก่อนบีตแรกเติมบีตตามความเร็วเปิดเพลง และใส่ห้องสั้น (เช่น 2/4) ให้ห้องแรกของเพลงตรงห้องใน DAW ห้องที่ยาวไม่เท่า meter ได้ time signature ของตัวเอง
+**MIDI tempo map** (`midi.tempo_map`, ปุ่ม "Tempo map" และใน ZIP): SMF type 1, PPQ 960 สร้างจาก `timeline_grid` (เวลาเดียวกับ WAV ที่ export) แทร็ก 1 มี tempo หนึ่งค่าต่อหนึ่งบีต (ปัดจากผลรวมสะสม คลาดไม่ถึง 1 µs) + time signature + marker ชื่อท่อน แทร็ก 2 มีโน้ตคลิกทุกบีต (ช่อง 10, ตัวเน้นโน้ต 76) ช่วงก่อนบีตแรกเติมจำนวนบีตที่ทำให้ห้องแรกของเพลงตรงห้องใน DAW โดยไม่เปลี่ยน time signature (GarageBand ใช้ time signature เดียวทั้งโปรเจกต์ และเอาค่าแรกในไฟล์) ความเร็วช่วงนั้นจึงอาจสูงมาก (สูงสุด 990 BPM ตามที่ GarageBand/Logic รับ) ถ้าเกินจึงใช้ห้องสั้นแทน ห้องที่ยาวไม่เท่า meter ได้ time signature ของตัวเอง (GarageBand ไม่สนค่านี้) ลองเปิดใน GarageBand 10.4 แล้ว: ได้ 4/4, tempo track ครบ, บีตแรกอยู่ห้อง 2
 
 **ซ้าย/ขวา (routing)**: เลือก L หรือ R จะรวมแทร็กเป็นโมโนด้วย (L+R)/2 เพื่อให้เสียงกลางคงระดับ กฎเดียวกันทั้งฝั่งเบราว์เซอร์ (`makeRoute` ใน app.js) และฝั่ง server (`playlists.render_mix`) **ต้องแก้คู่กันเสมอ** ค่าที่ตั้งในหน้าเพลงเก็บใน localStorage ต่อเพลง
 

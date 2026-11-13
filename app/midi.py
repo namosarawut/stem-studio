@@ -18,6 +18,7 @@ CLICK_CHANNEL = 9              # channel 10, General MIDI drums
 ACCENT_NOTE = 76               # Hi Wood Block
 BEAT_NOTE = 77                 # Low Wood Block
 NOTE_TICKS = PPQ // 4
+MAX_IMPORT_BPM = 990           # GarageBand and Logic accept up to 990 BPM
 
 
 def _vlq(value: int) -> bytes:
@@ -49,12 +50,21 @@ def _track(events: list[tuple[int, int, bytes]]) -> bytes:
     return b"MTrk" + struct.pack(">I", len(body)) + bytes(body)
 
 
-def _lead_beats(first: float, period: float) -> int:
-    """How many beats fill the time before the first beat, at about the opening tempo.
-    A short first bar (set below) keeps the song's bar lines on the DAW's bars."""
+def _lead_beats(first: float, period: float, before_bar: int, meter: int) -> int:
+    """How many beats fill the time before the first beat. Preferably a count that puts
+    the song's first bar line on a bar of the DAW's grid with no change of time signature,
+    since GarageBand keeps one signature for the whole project; the tempo there is then
+    whatever fits. Only when that tempo would be too fast for a DAW does the count follow
+    the opening tempo, and a short first bar (set by the caller) keeps the bars aligned."""
     if first <= 0.001:
         return 0
-    return max(1, round(first / period))
+    wanted = first / period
+    step = (-before_bar) % meter
+    candidates = [n for n in range(step, int(wanted) + 2 * meter + 1, meter)
+                  if n >= 1 and 60 * n / first <= MAX_IMPORT_BPM]
+    if candidates:
+        return min(candidates, key=lambda n: abs(n - wanted))
+    return max(1, round(wanted))
 
 
 def tempo_map(grid: dict, sections: list[dict], title: str) -> bytes:
@@ -67,7 +77,7 @@ def tempo_map(grid: dict, sections: list[dict], title: str) -> bytes:
     bar_index = [i for i, b in enumerate(beats) if round(b, 3) in downs]
     first_bar = bar_index[0] if bar_index else 0
     period = beats[1] - beats[0]
-    lead = _lead_beats(beats[0], period)
+    lead = _lead_beats(beats[0], period, first_bar, meter)
 
     # Beat positions in microseconds, the lead-in beats spread evenly before the first.
     points = [beats[0] * k / lead for k in range(lead)] if lead else []
