@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import queue
 import re
@@ -15,6 +16,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import imageio_ffmpeg
+import numpy as np
 import soundfile as sf
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -34,7 +36,7 @@ from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
-from . import cues as cue_track, midi, playlists, project, separator  # noqa: E402
+from . import cues as cue_track, gridfix, midi, playlists, project, separator, warp  # noqa: E402
 from .analyzer import ANALYSIS_VERSION, STEM_THAI, _peaks, analyze  # noqa: E402
 from .metronome import render_click  # noqa: E402
 from .monitor import ResourceMonitor  # noqa: E402
@@ -112,9 +114,8 @@ CUE_CACHE = ROOT / "models" / "cues"
 
 
 def timeline_samples(folder: Path, edits: dict) -> int:
-    """Song length plus lead-in, in samples: the length every served track has."""
-    reference = next(p for p in sorted((folder / "stems").glob("*.wav")) if p.stem not in project.GUIDES)
-    return sf.info(reference).frames + project.lead_samples(edits, separator.SAMPLE_RATE)
+    """Song length (after a tempo lock) plus lead-in, in samples: every served track's length."""
+    return project.song_samples(folder, edits, separator.SAMPLE_RATE) + project.lead_samples(edits, separator.SAMPLE_RATE)
 
 
 def render_click_track(folder: Path, analysis: dict, edits: dict) -> None:
@@ -125,8 +126,7 @@ def render_click_track(folder: Path, analysis: dict, edits: dict) -> None:
 def render_cues(folder: Path, analysis: dict, edits: dict) -> None:
     """Render the spoken cue track from the saved cue list on the current beat grid."""
     grid = project.timeline_grid(analysis, edits)
-    lead = project.lead_seconds(edits)
-    on_timeline = [{**c, "time": c["time"] + lead} for c in edits.get("cues", [])]
+    on_timeline = [{**c, "time": project.to_timeline(edits, c["time"])} for c in edits.get("cues", [])]
     stereo, counts = cue_track.render(
         on_timeline, grid["beats"], grid["meter"], timeline_samples(folder, edits), separator.SAMPLE_RATE, CUE_CACHE,
         folder / "stems" / "cues.wav",
@@ -156,7 +156,7 @@ def process(job_id: str) -> None:
     monitor.start()
     try:
         monitor.stage("decode", "อ่านไฟล์เสียง", "CPU (ffmpeg)", measures_cpu=False)
-        wav = separator.decode_audio(folder / job["source"])
+        wav = apply_trim(separator.decode_audio(folder / job["source"]), job.get("trim"))
         update_job(job_id, stage="model", progress=0.04, message="โหลดโมเดล AI (ครั้งแรกจะดาวน์โหลดก่อน)", duration=round(wav.shape[1] / separator.SAMPLE_RATE, 1))
         monitor.stage("model", "โหลดโมเดล", "CPU")
         separator.load_model(job["model"])
@@ -309,10 +309,42 @@ def list_jobs() -> list[dict]:
         return sorted((dict(j) for j in jobs.values()), key=lambda j: j["created_at"], reverse=True)
 
 
+MIN_TRIMMED_SECONDS = 1.0
+
+
+def clean_trim(start: float, end: float | None) -> dict | None:
+    """The part of the upload to separate, in seconds of the file. None keeps it all.
+    Only the decoded audio is cut; the uploaded file is stored as it came."""
+    if not math.isfinite(start) or start < 0 or (end is not None and not math.isfinite(end)):
+        raise HTTPException(422, "ช่วงที่เลือกไม่ถูกต้อง")
+    if end is not None and end - start < MIN_TRIMMED_SECONDS:
+        raise HTTPException(422, "ช่วงที่เลือกสั้นเกินไป ต้องยาวอย่างน้อย 1 วินาที")
+    if start <= 0 and end is None:
+        return None
+    return {"start": round(start, 3), "end": None if end is None else round(end, 3)}
+
+
+def apply_trim(wav, trim: dict | None):
+    if not trim:
+        return wav
+    first = int(round(trim["start"] * separator.SAMPLE_RATE))
+    last = wav.shape[1] if trim["end"] is None else min(wav.shape[1], int(round(trim["end"] * separator.SAMPLE_RATE)))
+    if last - first < MIN_TRIMMED_SECONDS * separator.SAMPLE_RATE:
+        raise separator.AudioDecodeError("ช่วงที่เลือกอยู่นอกความยาวของไฟล์ หรือสั้นเกินไป")
+    part = np.ascontiguousarray(wav[:, first:last])  # a copy, so the full song can be freed
+    if np.abs(part).max() < 1e-4:
+        raise separator.AudioDecodeError("ช่วงที่เลือกไม่มีเสียง")
+    return part
+
+
 @app.post("/api/jobs", status_code=201)
-def create_job(file: UploadFile = File(...), model: str = Form("htdemucs")) -> dict:
+def create_job(
+    file: UploadFile = File(...), model: str = Form("htdemucs"),
+    trim_start: float = Form(0.0), trim_end: float | None = Form(None),
+) -> dict:
     if model not in separator.MODELS:
         raise HTTPException(400, "ไม่รู้จักโมเดลนี้")
+    trim = clean_trim(trim_start, trim_end)
     filename = Path(file.filename or "song").name
     suffix = Path(filename).suffix.lower()
     if suffix not in ALLOWED_SUFFIXES:
@@ -347,6 +379,8 @@ def create_job(file: UploadFile = File(...), model: str = Form("htdemucs")) -> d
         "device": separator.device_label(DEVICE),
         "created_at": time.time(),
     }
+    if trim:
+        job["trim"] = trim
     with jobs_lock:
         jobs[job_id] = job
         save_meta(job)
@@ -424,11 +458,17 @@ def song_tracks(job: dict, edits: dict) -> list[str]:
 def commit_cuts(job_id: str, job: dict, edits: dict, changed: list[str]) -> dict:
     folder = job_dir(job_id)
     project.render(folder, edits, project.active_stems(job), separator.SAMPLE_RATE)
+    project.build_warped(folder, song_tracks(job, edits), edits, separator.SAMPLE_RATE)
     project.build_padded(folder, song_tracks(job, edits), edits, separator.SAMPLE_RATE)
     project.save_edits(folder, edits)
     (folder / "stems.zip").unlink(missing_ok=True)
     update_job(job_id, persist=True, stems=project.stems_after_edit(job, edits))
     return {"changed": changed}
+
+
+def refuse_when_locked(edits: dict) -> None:
+    if edits.get("warp"):
+        raise HTTPException(409, "ความเร็วถูกล็อกอยู่ ปลดล็อกก่อนถึงจะแก้เมโทรนอมได้")
 
 
 @app.put("/api/jobs/{job_id}/click")
@@ -440,6 +480,7 @@ def update_click(job_id: str, grid: ClickGrid) -> dict:
     analysis = read_analysis_file(job_id)
     with edit_lock:
         edits = project.load_edits(folder)
+        refuse_when_locked(edits)
         lead = project.lead_seconds(edits)
         try:
             clean = project.clean_click_grid(
@@ -457,6 +498,52 @@ def update_click(job_id: str, grid: ClickGrid) -> dict:
         return {**project.timeline_grid(analysis, edits), **project.tempo_view(analysis, edits)}
 
 
+class RepairRequest(BaseModel):
+    beats: list[float]
+    downbeats: list[float]
+    meter: int
+    bpm: float | None = None
+
+
+@app.post("/api/jobs/{job_id}/click/repair")
+def repair_click(job_id: str, request: RepairRequest) -> dict:
+    """Propose a metronome with the spots that slipped off the drums rebuilt. Nothing is
+    saved: the page puts it in the editor, where it can be undone like any other edit."""
+    job = editable_job(job_id)
+    folder = job_dir(job_id)
+    edits = project.load_edits(folder)
+    refuse_when_locked(edits)
+    if "drums" not in project.active_stems(job):
+        raise HTTPException(422, "เพลงนี้ไม่มีแทร็กกลอง ซ่อมอัตโนมัติไม่ได้")
+    if not request.beats or len(request.beats) > project.MAX_BEATS or not 1 <= request.meter <= 12:
+        raise HTTPException(422, "ข้อมูลเมโทรนอมไม่ถูกต้อง")
+    if request.bpm is not None and not (math.isfinite(request.bpm) and 30 <= request.bpm <= 300):
+        raise HTTPException(422, "ความเร็วไม่ถูกต้อง")
+    hits = gridfix.drum_hits(project.stem_path(folder, "drums"))
+    song = lambda times: [project.to_song(edits, float(t)) for t in times]  # noqa: E731
+    beats, downbeats, meter = song(request.beats), song(request.downbeats), request.meter
+    # A metronome that slid off the drums everywhere (typically one BPM set for a song
+    # that drifts) has nothing local to repair: start again from the analyzed beats,
+    # which follow the drums, at the tempo the person is working in.
+    rebuilt = None
+    drift = gridfix.drift_share(beats, hits)
+    if drift > gridfix.DRIFT_SHARE:
+        analysis = read_analysis_file(job_id)
+        bpm = request.bpm or 60.0 * (len(beats) - 1) / (max(beats) - min(beats))
+        auto = gridfix.scaled_grid(analysis["tempo"]["beats"], analysis["tempo"]["downbeats"], meter, bpm)
+        if gridfix.drift_share(auto["beats"], hits) < drift - 0.1:
+            beats, downbeats = auto["beats"], auto["downbeats"]
+            rebuilt = {"factor": auto["factor"], "drift": round(drift, 2)}
+    result = gridfix.repair(beats, downbeats, meter, hits, request.bpm)
+    timeline = lambda times: [round(project.to_timeline(edits, t), 3) for t in times]  # noqa: E731
+    return {
+        "rebuilt": rebuilt,
+        "beats": timeline(result["beats"]), "downbeats": timeline(result["downbeats"]), "meter": result["meter"],
+        "fixed": [{**f, "start": round(project.to_timeline(edits, f["start"]), 3), "end": round(project.to_timeline(edits, f["end"]), 3)} for f in result["fixed"]],
+        "left": timeline(result["left"]),
+    }
+
+
 @app.delete("/api/jobs/{job_id}/click")
 def reset_click(job_id: str) -> dict:
     editable_job(job_id)
@@ -464,6 +551,7 @@ def reset_click(job_id: str) -> dict:
     analysis = read_analysis_file(job_id)
     with edit_lock:
         edits = project.load_edits(folder)
+        refuse_when_locked(edits)
         edits["click"] = None
         render_click_track(folder, analysis, edits)
         project.save_edits(folder, edits)
@@ -484,7 +572,7 @@ def set_lead_in(job_id: str, request: LeadIn) -> dict:
         raise HTTPException(422, f"ช่วงนับก่อนเพลงต้องอยู่ระหว่าง 0 ถึง {project.MAX_LEAD_BARS} ห้อง")
     with edit_lock:
         edits = project.load_edits(folder)
-        grid = project.click_grid(analysis, edits)
+        grid = project.base_grid(analysis, edits)
         lead = project.compute_lead(grid, request.bars, separator.SAMPLE_RATE)
         edits["lead_in"] = {"bars": request.bars, "seconds": lead} if lead > 0 else None
         # A shorter lead-in leaves no room for beats and cues placed before it.
@@ -497,7 +585,7 @@ def set_lead_in(job_id: str, request: LeadIn) -> dict:
             cues = [c for c in cues if not (c["kind"] == "count" and c.get("auto"))]
         added = False
         if lead > 0 and request.count_voice:
-            target = round(project.first_downbeat(grid), 3)
+            target = round(project.from_locked(edits, project.first_downbeat(grid)), 3)
             if not any(c["kind"] == "count" and abs(c["time"] - target) < 0.05 for c in cues):
                 cues.append({"kind": "count", "time": target, "style": "long" if request.bars >= 2 else "full", "voice": request.count_voice, "auto": True})
                 added = True
@@ -511,6 +599,53 @@ def set_lead_in(job_id: str, request: LeadIn) -> dict:
         project.save_edits(folder, edits)
         (folder / "stems.zip").unlink(missing_ok=True)
     return {"bars": request.bars, "seconds": round(lead, 6), "added_count": added}
+
+
+class TempoLock(BaseModel):
+    bpm: float | None = None        # None unlocks
+    position: float | None = None   # a playhead time to carry over to the new timeline
+
+
+@app.put("/api/jobs/{job_id}/tempo-lock")
+def set_tempo_lock(job_id: str, request: TempoLock) -> dict:
+    """Stretch the song so every beat of the metronome lasts the same (or undo it). The
+    separated and cut tracks are untouched; locked copies go to warped/."""
+    job = editable_job(job_id)
+    folder = job_dir(job_id)
+    analysis = read_analysis_file(job_id)
+    if request.bpm is not None and not math.isfinite(request.bpm):
+        raise HTTPException(422, "ความเร็วไม่ถูกต้อง")
+    with edit_lock:
+        edits = project.load_edits(folder)
+        song_position = project.to_song(edits, request.position) if request.position is not None else None
+        if request.bpm is None:
+            edits["warp"] = None
+        else:
+            try:
+                project.lock_tempo(analysis, edits, request.bpm)
+            except warp.WarpError as error:
+                raise HTTPException(422, str(error))
+        # The lead-in is a number of bars at the opening tempo, which the lock may change.
+        if edits.get("lead_in"):
+            lead = project.compute_lead(project.base_grid(analysis, edits), edits["lead_in"]["bars"], separator.SAMPLE_RATE)
+            edits["lead_in"] = {**edits["lead_in"], "seconds": lead}
+            edits["cues"] = [{**c, "time": max(-lead, c["time"])} for c in edits.get("cues", [])]
+            if edits.get("click"):
+                kept = [b for b in edits["click"]["beats"] if b >= -lead - 0.002]
+                edits["click"] = {**edits["click"], "beats": kept, "downbeats": [d for d in edits["click"]["downbeats"] if d in set(kept)]}
+        tracks = song_tracks(job, edits)
+        project.build_warped(folder, tracks, edits, separator.SAMPLE_RATE)
+        project.build_padded(folder, tracks, edits, separator.SAMPLE_RATE)
+        render_click_track(folder, analysis, edits)
+        render_cues(folder, analysis, edits)
+        project.save_edits(folder, edits)
+        (folder / "stems.zip").unlink(missing_ok=True)
+    lock = edits.get("warp")
+    return {
+        "bpm": lock["bpm"] if lock else None,
+        "range": lock.get("range") if lock else None,
+        "position": None if song_position is None else round(project.to_timeline(edits, song_position), 3),
+    }
 
 
 @app.get("/api/cues/library")
@@ -539,7 +674,7 @@ def save_cues(job_id: str, request: CueList) -> dict:
         grid = project.click_grid(analysis, edits)
         lead = project.lead_seconds(edits)
         try:
-            song_time = [{**c, "time": float(c.get("time", -1e9)) - lead} for c in request.cues]
+            song_time = [{**c, "time": project.to_song(edits, float(c.get("time", -1e9)))} for c in request.cues]
             cleaned = cue_track.clean_cues(song_time, analysis["duration"], grid["meter"], start=-lead)
             edits["cues"] = cleaned
             render_cues(folder, analysis, edits)
@@ -550,7 +685,7 @@ def save_cues(job_id: str, request: CueList) -> dict:
         project.save_edits(folder, edits)
         (folder / "stems.zip").unlink(missing_ok=True)
     rendered = json.loads((folder / project.CUE_RENDER_FILE).read_text(encoding="utf-8"))
-    on_timeline = [{**c, "time": round(c["time"] + lead, 3)} for c in cleaned]
+    on_timeline = [{**c, "time": round(project.to_timeline(edits, c["time"]), 3)} for c in cleaned]
     return {"cues": on_timeline, "count_beats": rendered["counts"], "peaks": rendered["peaks"]}
 
 
@@ -560,13 +695,13 @@ def create_cut(job_id: str, cut: CutRequest) -> dict:
     analysis = read_analysis_file(job_id)
     with edit_lock:
         edits = project.load_edits(job_dir(job_id))
-        lead = project.lead_seconds(edits)
-        if cut.end - lead <= 0:
+        start, end = project.to_song(edits, cut.start), project.to_song(edits, cut.end)
+        if end <= 0:
             raise HTTPException(422, "ช่วงที่เลือกอยู่ในช่วงนับก่อนเพลง ซึ่งไม่มีเสียง")
         try:
             result = project.add_cut(
                 job_dir(job_id), edits, project.active_stems(job), analysis["duration"], separator.SAMPLE_RATE,
-                cut.source, cut.start - lead, cut.end - lead, cut.name, cut.target,
+                cut.source, start, end, cut.name, cut.target,
             )
         except project.EditError as error:
             raise HTTPException(422, str(error))
@@ -628,9 +763,9 @@ def write_tempo_midi(job: dict, folder: Path, edits: dict) -> Path:
     """The metronome as a MIDI tempo map on the export timeline, rebuilt on every request
     because it is small and depends on the grid, the lead-in and the sections."""
     analysis = read_analysis_file(job["id"])
-    lead = project.lead_seconds(edits)
-    sections = [{**s, "start": s["start"] + lead} for s in analysis.get("sections", [])]
-    data = midi.tempo_map(project.timeline_grid(analysis, edits), sections, job["title"])
+    sections = [{**s, "start": project.to_timeline(edits, s["start"])} for s in analysis.get("sections", [])]
+    lock = edits.get("warp")
+    data = midi.tempo_map(project.timeline_grid(analysis, edits), sections, job["title"], lock["bpm"] if lock else None)
     path = folder / "tempo.mid"
     temporary = path.with_suffix(".tmp")
     temporary.write_bytes(data)

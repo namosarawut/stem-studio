@@ -49,6 +49,35 @@
     </section>
   </main>
 
+  <dialog class="pl-dialog trim-dialog" id="trim-dialog" aria-label="เลือกช่วงที่จะแยก">
+    <div class="pl-dialog-head">
+      <strong class="trim-title" id="trim-title"></strong>
+      <button class="icon-btn small" id="trim-close" aria-label="ยกเลิก">×</button>
+    </div>
+    <div class="trim-body">
+      <p class="trim-hint">อยากตัดหัวหรือท้ายเพลงทิ้งก่อนแยก ลากเส้นเริ่มกับเส้นจบได้เลย คลิกบนคลื่นเสียงเพื่อฟังจากตรงนั้น ถ้าจะใช้ทั้งเพลงก็กดแยก stem ได้เลย</p>
+      <div class="pl-wave-box">
+        <canvas class="pl-wave trim-wave" id="trim-wave"></canvas>
+        <span class="pl-wave-note" id="trim-note"></span>
+      </div>
+      <div class="trim-row">
+        <button class="btn" id="trim-play">ฟัง</button>
+        <label class="pl-field">เริ่ม <input class="edit-input pl-time-input" id="trim-start" aria-label="จุดเริ่ม"></label>
+        <label class="pl-field">จบ <input class="edit-input pl-time-input" id="trim-end" aria-label="จุดจบ"></label>
+        <span class="trim-length" id="trim-length"></span>
+      </div>
+      <div class="trim-row">
+        <button class="chip" id="trim-set-start" title="ตั้งจุดเริ่มที่ตำแหน่งที่กำลังฟังอยู่ (กด I)">เริ่มตรงนี้</button>
+        <button class="chip" id="trim-set-end" title="ตั้งจุดจบที่ตำแหน่งที่กำลังฟังอยู่ (กด O)">จบตรงนี้</button>
+        <button class="chip" id="trim-reset">ใช้ทั้งเพลง</button>
+      </div>
+    </div>
+    <div class="trim-foot">
+      <button class="btn" id="trim-cancel">ยกเลิก</button>
+      <button class="btn btn-primary" id="trim-go">แยก stem</button>
+    </div>
+  </dialog>
+
   <!-- Processing -->
   <main id="view-processing" class="view processing" hidden>
     <a class="back" href="#/">← กลับหน้าแรก</a>
@@ -140,6 +169,10 @@
               <option value="8">8 ห้อง</option>
             </select>
           </label>
+          <span class="edit-field lock-field" id="lock-field" hidden>ล็อกความเร็ว
+            <input class="edit-input lock-bpm" id="lock-bpm" type="number" min="30" max="300" step="0.1" aria-label="BPM ที่จะล็อก">
+            <button class="chip" id="btn-lock" aria-pressed="false">ล็อก</button>
+          </span>
           <span class="tool-sep" aria-hidden="true"></span>
           <button class="chip" id="btn-edit-click" aria-pressed="false" hidden>แก้เมโทรนอม</button>
           <button class="chip" id="btn-undo-cut" hidden>ย้อนการตัดล่าสุด</button>
@@ -173,6 +206,7 @@
               </select>
             </div>
             <div class="edit-group edit-end">
+              <button class="mini wide" id="metro-repair" title="หาจุดที่เมโทรนอมหลุดจากเสียงกลอง (บีตเกิน ขาด หรือเบี้ยว) แล้วจัดใหม่ให้ตรงกลอง กดย้อนกลับได้">ซ่อมจุดที่เพี้ยน</button>
               <button class="mini wide" id="metro-undo" disabled>ย้อนกลับ</button>
               <button class="mini wide" id="metro-reset">คืนค่าอัตโนมัติ</button>
             </div>

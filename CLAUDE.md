@@ -44,6 +44,8 @@ Improvement backlog and known gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
 | `app/cues.py` | Cue library (135 phrases, 6 categories), count-in styles, `say` TTS cache, cue track render |
 | `app/metronome.py` | `write_wav_atomic`, click track render |
 | `app/midi.py` | MIDI tempo map export (tempo per beat, time signatures, section markers, click notes) |
+| `app/gridfix.py` | Metronome repair from the drum stem ("ซ่อมจุดที่เพี้ยน"): rebuilds spots that slipped off the drums |
+| `app/warp.py` | Tempo lock: beat time map, kink filtering, WSOLA stretch with one shared plan for all tracks |
 | `app/monitor.py` | Per-job resource report (CPU, RAM, GPU via `ioreg`, disk) |
 | `app/playlists.py` | Setlists, imported files (`data/library`), server-rendered project mixes for playback |
 | `static/app.js` | Router, home, processing view, studio (Mixer class, timeline canvas, metronome editor, cues, cuts, lead-in, routing, export) |
@@ -52,8 +54,8 @@ Improvement backlog and known gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Data on disk
 
-- `data/jobs/<id>/`: `meta.json`, `source.*`, `stems/*.wav` (never modified after separation),
-  `analysis.json`, `edits.json`, `edited/` (cut results), `padded/` (stems with lead-in silence),
+- `data/jobs/<id>/`: `meta.json` (`trim: {start, end|null}` when only part of the upload was separated), `source.*`, `stems/*.wav` (never modified after separation),
+  `analysis.json`, `edits.json`, `edited/` (cut results), `warped/` (tempo-locked tracks), `padded/` (stems with lead-in silence),
   `cues_render.json`, `tempo.mid` (rebuilt on each download), `playback/<key>.wav|json` (setlist mixes, newest 6 kept), `stems.zip` (cache,
   deleted whenever edits change export content).
 - `data/library/<id>/`: imported file as `audio.wav` + `meta.json` (with peaks).
@@ -62,8 +64,11 @@ Improvement backlog and known gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Invariants and gotchas
 
-- **Two time bases.** `edits.json` stores song time. The API and UI use timeline time = song time +
-  lead-in (`project.lead_seconds`). Convert at the API boundary (see `save_cues`, `create_cut`).
+- **Time bases.** `edits.json` stores song time (of the original stems). The API and UI use timeline
+  time = warp(song time) + lead-in, where warp is the tempo lock's time map (identity when unlocked).
+  Convert only with `project.to_timeline` / `project.to_song`, at the API boundary.
+- **Tempo lock** (`edits.warp`): render chain is stems → edited/ (cuts) → warped/ (lock) → padded/
+  (lead-in). While locked the metronome cannot be edited (409) and the grid is steady at the bpm.
 - **Every served track has the same length** (`timeline_samples`), so exports line up at 0 in a DAW.
 - **Atomic writes everywhere** (`write_wav_atomic`, `project._swap_dir`, `playlists.write_json_atomic`):
   a browser may be downloading a file while it is rebuilt.

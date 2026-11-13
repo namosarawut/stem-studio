@@ -15,7 +15,9 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
+from . import warp
 from .analyzer import _peaks
+from .metronome import write_wav_atomic
 from .tempo import summary as tempo_summary
 from .tempo import tempo_map
 
@@ -27,6 +29,7 @@ CUES = "cues"
 GUIDES = (CLICK, CUES)
 CUE_RENDER_FILE = "cues_render.json"
 PADDED_DIR = "padded"
+WARPED_DIR = "warped"
 MAX_LEAD_BARS = 16
 FADE_SECONDS = 0.01
 MIN_REGION_SECONDS = 0.02
@@ -286,6 +289,105 @@ def compute_lead(grid: dict, bars: int, sample_rate: int) -> float:
     return round(seconds * sample_rate) / sample_rate
 
 
+# ---------------------------------------------------------------- tempo lock
+#
+# A locked song is stretched so every beat lasts 60 / bpm seconds (see warp.py). The hand
+# edits stay in song time; locked time is song time passed through the warp, and the
+# playback timeline is locked time plus the lead-in. edits["warp"] keeps the time map it
+# was made with, so the lock never shifts if the analysis or the algorithm changes later.
+
+def warp_of(edits: dict) -> tuple[np.ndarray, np.ndarray] | None:
+    lock = edits.get("warp")
+    if not lock:
+        return None
+    return np.asarray(lock["src"], dtype=np.float64), np.asarray(lock["dst"], dtype=np.float64)
+
+
+def to_locked(edits: dict, t):
+    """Song time to locked time (the same thing when the song is not locked)."""
+    mapping = warp_of(edits)
+    if mapping is None:
+        return t
+    out = warp.forward(t, *mapping)
+    return float(out) if np.ndim(out) == 0 else out
+
+
+def from_locked(edits: dict, t):
+    mapping = warp_of(edits)
+    if mapping is None:
+        return t
+    out = warp.backward(t, *mapping)
+    return float(out) if np.ndim(out) == 0 else out
+
+
+def to_timeline(edits: dict, t: float) -> float:
+    """Song time (as stored in edits.json) to the playback timeline."""
+    return float(to_locked(edits, t)) + lead_seconds(edits)
+
+
+def to_song(edits: dict, t: float) -> float:
+    """Playback timeline to song time."""
+    return float(from_locked(edits, t - lead_seconds(edits)))
+
+
+def lock_tempo(analysis: dict, edits: dict, bpm: float) -> dict:
+    """Store the time map that makes the current metronome steady at `bpm`."""
+    grid = click_grid(analysis, edits)
+    src, dst = warp.anchors(grid["beats"], bpm)
+    beats = sorted(grid["beats"])
+    edits["warp"] = {
+        "bpm": round(float(bpm), 3), "src": [round(float(t), 6) for t in src], "dst": [round(float(t), 6) for t in dst],
+        "beats": beats, "downbeats": sorted(grid["downbeats"]), "meter": grid["meter"],
+        "range": warp.stretch_range(beats, bpm),
+    }
+    return edits["warp"]
+
+
+def base_grid(analysis: dict, edits: dict) -> dict:
+    """The metronome in locked time: steady at the locked tempo, else as edited/analyzed."""
+    lock = edits.get("warp")
+    if not lock:
+        return click_grid(analysis, edits)
+    period = 60.0 / lock["bpm"]
+    first = lock["beats"][0]
+    index = {round(b, 3): i for i, b in enumerate(lock["beats"])}
+    steady = [round(first + i * period, 6) for i in range(len(lock["beats"]))]
+    downs = [steady[index[round(d, 3)]] for d in lock["downbeats"] if round(d, 3) in index]
+    return {"beats": steady, "downbeats": downs, "meter": lock["meter"]}
+
+
+def song_samples(folder: Path, edits: dict, sample_rate: int) -> int:
+    """Length of every song track after the lock, before the lead-in."""
+    reference = next(p for p in sorted((folder / "stems").glob("*.wav")) if p.stem not in GUIDES)
+    frames = sf.info(reference).frames
+    mapping = warp_of(edits)
+    return frames if mapping is None else warp.locked_samples(frames, *mapping, sample_rate)
+
+
+def build_warped(folder: Path, stems: list[str], edits: dict, sample_rate: int) -> None:
+    """Locked copies of the song tracks (after cuts), all from one shared stretch plan."""
+    target = folder / WARPED_DIR
+    mapping = warp_of(edits)
+    if mapping is None:
+        shutil.rmtree(target, ignore_errors=True)
+        return
+    building = folder / f"{WARPED_DIR}.building"
+    shutil.rmtree(building, ignore_errors=True)
+    building.mkdir()
+    sources = {stem: stem_path(folder, stem) for stem in stems}
+    peaks = warp.warp_files(sources, building, *mapping, sample_rate, write_wav_atomic, _peaks)
+    (building / PEAKS_FILE).write_text(json.dumps(peaks), encoding="utf-8")
+    _swap_dir(building, target)
+
+
+def song_track_path(folder: Path, stem: str, edits: dict) -> Path:
+    """A song track after cuts and the tempo lock, before the lead-in."""
+    locked = folder / WARPED_DIR / f"{stem}.wav"
+    if edits.get("warp") and locked.exists():
+        return locked
+    return stem_path(folder, stem)
+
+
 def first_downbeat(grid: dict) -> float:
     downs = sorted(d for d in grid["downbeats"] if d >= -0.001)
     return downs[0] if downs else min(grid["beats"])
@@ -293,7 +395,7 @@ def first_downbeat(grid: dict) -> float:
 
 def timeline_grid(analysis: dict, edits: dict) -> dict:
     """The metronome grid on the playback timeline, carried back through the lead-in."""
-    grid = click_grid(analysis, edits)
+    grid = base_grid(analysis, edits)
     lead = lead_seconds(edits)
     beats = sorted(grid["beats"])
     downs = {round(d, 3) for d in grid["downbeats"]}
@@ -330,7 +432,7 @@ def build_padded(folder: Path, stems: list[str], edits: dict, sample_rate: int) 
     shutil.rmtree(building, ignore_errors=True)
     building.mkdir()
     for stem in stems:
-        audio, _ = sf.read(stem_path(folder, stem), dtype="int16", always_2d=True)
+        audio, _ = sf.read(song_track_path(folder, stem, edits), dtype="int16", always_2d=True)
         silence = np.zeros((pad, audio.shape[1]), dtype=np.int16)
         sf.write(building / f"{stem}.wav", np.concatenate([silence, audio]), sample_rate, subtype="PCM_16")
     _swap_dir(building, target)
@@ -344,15 +446,18 @@ def serve_path(folder: Path, stem: str, edits: dict) -> Path:
     padded = folder / PADDED_DIR / f"{stem}.wav"
     if lead_seconds(edits) > 0 and padded.exists():
         return padded
-    return stem_path(folder, stem)
+    return song_track_path(folder, stem, edits)
 
 
 def merged_view(folder: Path, analysis: dict, edits: dict) -> dict:
     """The analysis as it stands after the person's edits, on the playback timeline."""
     peaks_path = folder / EDITED_DIR / PEAKS_FILE
     peaks = json.loads(peaks_path.read_text(encoding="utf-8")) if peaks_path.exists() else {}
+    locked_peaks = folder / WARPED_DIR / PEAKS_FILE
+    if edits.get("warp") and locked_peaks.exists():
+        peaks = json.loads(locked_peaks.read_text(encoding="utf-8"))
     lead = lead_seconds(edits)
-    shift = lambda t: round(t + lead, 3)  # noqa: E731
+    shift = lambda t: round(to_timeline(edits, t), 3)  # noqa: E731
     silent = [0] * int(round(lead * 30))  # waveform overview has 30 points per second
     stems = []
     click = None
@@ -383,6 +488,7 @@ def merged_view(folder: Path, analysis: dict, edits: dict) -> dict:
         "sections": [{**s, "start": shift(s["start"]), "end": shift(s["end"])} for s in analysis["sections"]],
         "chords": [{**c, "start": shift(c["start"]), "end": shift(c["end"])} for c in analysis["chords"]],
         "tempo": {**tempo, "beats": [shift(t) for t in tempo["beats"]], "downbeats": [shift(t) for t in tempo["downbeats"]]},
+        "tempo_lock": {"bpm": edits["warp"]["bpm"], "range": edits["warp"].get("range")} if edits.get("warp") else None,
         "lead_in": {"bars": (edits.get("lead_in") or {}).get("bars", 0), "seconds": round(lead, 6)},
         "stems": stems,
         "tracks": edits["tracks"],

@@ -67,15 +67,22 @@ def _lead_beats(first: float, period: float, before_bar: int, meter: int) -> int
     return max(1, round(wanted))
 
 
-def tempo_map(grid: dict, sections: list[dict], title: str) -> bytes:
-    """Build the MIDI file from a timeline grid ({beats, downbeats, meter}, seconds)."""
+def tempo_map(grid: dict, sections: list[dict], title: str, steady_bpm: float | None = None) -> bytes:
+    """Build the MIDI file from a timeline grid ({beats, downbeats, meter}, seconds).
+    With `steady_bpm` (a tempo-locked song) the beats are taken as exactly that tempo, so
+    the millisecond rounding of the grid does not turn into tempo flicker in the DAW."""
     beats = sorted(float(b) for b in grid["beats"])
+    if steady_bpm and len(beats) > 1:
+        exact = [beats[0] + i * 60.0 / steady_bpm for i in range(len(beats))]
+        if max(abs(a - b) for a, b in zip(exact, beats)) < 0.002:
+            beats = exact
     meter = int(grid["meter"])
     downs = {round(float(d), 3) for d in grid["downbeats"]}
     if len(beats) < 2:
         raise ValueError("ต้องมีอย่างน้อยสองจังหวะ")
-    bar_index = [i for i, b in enumerate(beats) if round(b, 3) in downs]
+    bar_index = [i for i, b in enumerate(sorted(float(x) for x in grid["beats"])) if round(b, 3) in downs]
     first_bar = bar_index[0] if bar_index else 0
+    bar_set = set(bar_index)
     period = beats[1] - beats[0]
     lead = _lead_beats(beats[0], period, first_bar, meter)
 
@@ -129,7 +136,7 @@ def tempo_map(grid: dict, sections: list[dict], title: str) -> bytes:
     clicks: list[tuple[int, int, bytes]] = [(0, 0, _meta(0x03, b"Click"))]
     for i, beat in enumerate(beats):
         tick = (lead + i) * PPQ
-        accent = round(beat, 3) in downs
+        accent = i in bar_set
         note, velocity = (ACCENT_NOTE, 110) if accent else (BEAT_NOTE, 80)
         clicks.append((tick, 1, bytes([0x90 | CLICK_CHANNEL, note, velocity])))
         clicks.append((tick + NOTE_TICKS, 0, bytes([0x80 | CLICK_CHANNEL, note, 0])))

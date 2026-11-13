@@ -71,7 +71,9 @@ Browser (vanilla JS, ไม่มี build)  ──HTTP──▶  FastAPI (app/m
 | `app/project.py` | ~410 | โมเดลการแก้ไข: click grid, cuts, custom tracks, lead-in, `merged_view` ให้ UI |
 | `app/cues.py` | ~350 | ไลบรารีวลี, `COUNT_STYLES`, TTS ด้วย `say` + cache, `render` แทร็ก cue |
 | `app/metronome.py` | ~48 | `write_wav_atomic`, `render_click` |
-| `app/midi.py` | ~140 | `tempo_map`: ไฟล์ MIDI จากกริดเมโทรนอม (ดู §7) |
+| `app/midi.py` | ~150 | `tempo_map`: ไฟล์ MIDI จากกริดเมโทรนอม (ดู §7) |
+| `app/gridfix.py` | ~230 | ซ่อมเมโทรนอมจากเสียงกลอง (ปุ่ม "ซ่อมจุดที่เพี้ยน", ดู §7) |
+| `app/warp.py` | ~190 | ล็อกความเร็ว: time map จากบีต, กรองบีตเพี้ยน, ยืดเสียงแบบ WSOLA ใช้แผนเดียวกันทุกแทร็ก (ดู §7) |
 | `app/monitor.py` | ~210 | รายงานทรัพยากรต่อ job (CPU, RAM, GPU ผ่าน `ioreg`, ดิสก์) |
 | `app/playlists.py` | ~250 | เพลย์ลิสต์, ไฟล์นำเข้า, `render_mix` (เรนเดอร์มิกซ์โปรเจกต์ไว้เล่น) |
 | `static/index.html` | ~425 | โครงทุกหน้า (home, processing, studio, playlists) + dialog |
@@ -87,13 +89,15 @@ dependency หลัก (`requirements.txt`): torch 2.2–2.8, demucs 4.0.1, aud
 
 ```
 data/jobs/<id 12 hex>/
-  meta.json            สถานะ job: id, title, source, model, status, stage, progress, stems[], bpm, key, resources...
+  meta.json            สถานะ job: id, title, source, model, status, stage, progress, stems[], bpm, key, resources,
+                       trim? {start, end|null} (ช่วงของไฟล์ที่ใช้แยก วินาทีของไฟล์ต้นฉบับ)
   source.<ext>         ไฟล์ต้นฉบับ
   stems/*.wav          stem ที่แยกแล้ว + click.wav + cues.wav (guide)  ← stem ห้ามแก้
   analysis.json        version, duration, tempo{bpm,stability,beats,downbeats,varying,map,range,...},
                        meter, key, chords, loops, sections, stems[], loudness, insights
   edits.json           การแก้มือ (ดูล่าง)
   edited/              ผลการตัดช่วง (เรนเดอร์จาก ops)
+  warped/              แทร็กเพลงที่ล็อกความเร็วแล้ว (หลังตัดช่วง ก่อนเติม lead-in) + peaks.json
   padded/              stem ที่เติมความเงียบหน้าเพลงตาม lead-in
   cues_render.json     peaks และตำแหน่งบีตที่นับของแทร็ก cue
   tempo.mid            tempo map (สร้างใหม่ทุกครั้งที่ดาวน์โหลด)
@@ -113,6 +117,7 @@ models/                น้ำหนักโมเดล (TORCH_HOME) + model
   "ops":    [{source, target, start, end}],           // ลำดับการตัด (เรนเดอร์ใหม่จากต้นฉบับ)
   "colors_used": n,
   "lead_in": null | {bars, seconds},
+  "warp":   null | {bpm, src[], dst[], beats[], downbeats[], meter, range},  // ล็อกความเร็ว (time map เวลาเพลง→เวลาที่ล็อก)
   "cues":   [{kind: "phrase"|"count", time, text?/style?, voice, auto?}] }  // เวลาเพลง
 ```
 
@@ -121,9 +126,11 @@ models/                น้ำหนักโมเดล (TORCH_HOME) + model
 | กลุ่ม | Endpoint |
 |---|---|
 | ระบบ | `GET /api/system` |
-| งาน | `GET/POST /api/jobs`, `GET/DELETE /api/jobs/{id}`, `GET /api/jobs/{id}/analysis` |
+| งาน | `GET/POST /api/jobs` (POST รับ `trim_start`, `trim_end` ได้), `GET/DELETE /api/jobs/{id}`, `GET /api/jobs/{id}/analysis` |
 | เมโทรนอม | `PUT/DELETE /api/jobs/{id}/click` |
 | ห้องนับ | `PUT /api/jobs/{id}/lead-in` |
+| ซ่อมเมโทรนอม | `POST /api/jobs/{id}/click/repair` `{beats, downbeats, meter, bpm?}` (เวลา timeline) คืนกริดที่ซ่อมแล้ว ไม่บันทึก |
+| ล็อกความเร็ว | `PUT /api/jobs/{id}/tempo-lock` `{bpm: number|null, position?}` (null = ปลดล็อก) |
 | cue | `GET /api/cues/library`, `GET /api/cues/preview`, `PUT /api/jobs/{id}/cues` |
 | ตัดช่วง/แทร็ก | `POST /api/jobs/{id}/cuts`, `DELETE .../cuts/last`, `PATCH/DELETE .../tracks/{tid}` |
 | เสียง/ส่งออก | `GET /api/jobs/{id}/stems/{stem}.wav`, `GET .../tempo.mid`, `GET .../download.zip` (มี `tempo.mid` ด้วย) |
@@ -144,7 +151,25 @@ models/                น้ำหนักโมเดล (TORCH_HOME) + model
 - `tempo.py` แบ่งช่วงความเร็วด้วย penalty `SEGMENT_PENALTY` ที่จูนกับเพลงคงที่และเพลงที่เปลี่ยนความเร็ว
 - เวอร์ชันวิเคราะห์ต่ำกว่า `ANALYSIS_VERSION` จะรันซ้ำอัตโนมัติจาก stem เดิมตอนเปิดเพลง (`upgrade_analysis`) **โดยเก็บการแก้มือไว้**; ถ้าปรับอัลกอริทึมจนผลต่าง ให้เพิ่มเลขนี้
 
-**สองฐานเวลา**: `edits.json` เก็บ **เวลาเพลง**; API และ UI ใช้ **เวลา timeline = เวลาเพลง + lead-in** (`project.lead_seconds`) แปลงที่ขอบ API (ดู `save_cues`, `update_click`, `create_cut`) นี่คือจุดที่บั๊กเกิดง่ายที่สุด
+**ตัดช่วงก่อนแยก** (`chooseRange` ใน app.js, `clean_trim`/`apply_trim` ใน main.py): ตอนวางไฟล์ เบราว์เซอร์ถอดรหัสไฟล์เพื่อโชว์คลื่นเสียง (ไฟล์เกิน 400 MB หรือเบราว์เซอร์อ่านไม่ได้ ข้ามไปแยกทั้งเพลง) ผู้ใช้ลากเส้นเริ่ม/จบ ส่งไปแค่ตัวเลขสองค่า เซิร์ฟเวอร์เก็บไฟล์ต้นฉบับทั้งก้อน แล้วตัดเสียงหลังถอดรหัสใน `process()` ดังนั้น stem, analysis และทุกอย่างหลังจากนั้นเริ่มที่ 0 = จุดเริ่มที่เลือก ช่วงต้องยาว ≥ 1 วินาที
+
+**ฐานเวลา**: `edits.json` เก็บ **เวลาเพลง** (ของ stem ต้นฉบับ); API และ UI ใช้ **เวลา timeline = warp(เวลาเพลง) + lead-in** แปลงด้วย `project.to_timeline` / `project.to_song` เท่านั้น (warp เป็น identity เมื่อไม่ได้ล็อก) ที่ขอบ API (ดู `save_cues`, `create_cut`, `render_cues`, `write_tempo_midi`) นี่คือจุดที่บั๊กเกิดง่ายที่สุด ห้ามเขียน `+ lead` / `- lead` เองอีก
+
+**ล็อกความเร็ว** (`warp.py`, `project.lock_tempo`, `PUT /tempo-lock`, ช่อง "ล็อกความเร็ว" ข้างช่วงนับ): เพลงที่อัดโดยไม่มีคลิกจะไหล (เช่น "ยื้อ" 164–174 BPM) ล็อกแล้วเสียงทุกแทร็กถูกยืด/หดทีละบีตให้ทุกบีตยาว 60/bpm
+- time map: บีตแรกอยู่ที่เดิม (ก่อนหน้านั้นและ lead-in เป็น 1:1), บีตที่ n ของเพลงไปอยู่บีตที่ n ของกริดคงที่, หลังบีตสุดท้าย 1:1 บีตที่ห่างจากเส้นของเพื่อนบ้านเกิน 30 ms (`KINK_SECONDS`) ไม่ถูกใช้เป็นจุดยึด
+- ถ้าช่วงไหนต้องยืดเกิน 15% (`MAX_STRETCH`) จะไม่ล็อก แต่บอกเวลาที่ต้องแก้ (มักเป็นบีตเกิน/ขาดในเมโทรนอม) ถ้า BPM ที่ขอห่างจากค่าเฉลี่ยเกิน 20–25% ก็ไม่ล็อก (บอกเรื่อง ×2/÷2)
+- ยืดด้วย WSOLA ที่เขียนเอง (ไม่มี dependency เพิ่ม): เลือกจุดต่อเฟรมครั้งเดียวจากเสียงรวมทุกแทร็ก แล้วใช้จุดเดียวกันกับทุกแทร็ก แทร็กจึงยังรวมกันได้เท่าเพลงเดิม ระดับเสียงไม่เปลี่ยน ทดสอบกับ "ยื้อ" 6 แทร็ก 5.5 นาทีใช้ 7.5 วินาที กลองหลังยืดห่างคลิก median 9 ms เท่ากับก่อนยืด
+- ลำดับเรนเดอร์: `stems/` → ตัดช่วง `edited/` → ล็อก `warped/` → lead-in `padded/` (`serve_path` เลือกตัวสุดท้ายที่มี) การตัดช่วงขณะล็อกจะยืดใหม่ทั้งชุด
+- ขณะล็อก แก้เมโทรนอมไม่ได้ (409) กริดคือค่าคงที่จาก snapshot ใน `edits.warp`; ช่วงนับคำนวณใหม่ตามความเร็วที่ล็อก; cue/ท่อน/คอร์ดย้ายตาม time map; MIDI เขียน tempo ค่าเดียว
+- ปลดล็อกแล้วไฟล์ที่เสิร์ฟกลับมาเหมือนก่อนล็อกทุกไบต์ (ทดสอบแล้ว)
+
+**ซ่อมเมโทรนอมอัตโนมัติ** (`gridfix.py`, ปุ่ม "ซ่อมจุดที่เพี้ยน" ในแผงแก้เมโทรนอม): หาจุดเดียวกับที่การล็อกจะยืดเกิน 10% (จุดที่ห่างกันไม่เกิน 16 บีตรวมเป็นจุดเดียว) แล้วสร้างใหม่จากเสียงกลอง (onset ของ stem กลอง, cache ในหน่วยความจำ)
+- ยึดหัวท้ายด้วยบีตที่ตรงหัวกลองติดกันสองบีต ลองช่วงใกล้ก่อนแล้วขยายออก 2 ครั้ง เลือกช่วงที่ไม่ต้องเปลี่ยนจำนวนบีตก่อน (มักเป็นบีตหนึ่งเร็วไปอีกบีตช้าไป)
+- เปลี่ยนจำนวนบีตเฉพาะจุดที่หนัก (>15%) มีกลองยึดทั้งสองข้าง และความเร็วรอบข้างบอกจำนวนได้ชัด (ห่างจำนวนเต็มไม่เกิน 0.3) จุดที่ไม่มีกลองแค่จัดระยะใหม่
+- เกลี่ยระยะเท่ากันแล้วขยับบีตลงหัวกลองที่ห่างไม่เกิน 40 ms; หัวห้องนับต่อจากหัวห้องก่อนจุด ห้องที่สั้น/ยาวผิดปกติจึงอยู่ก่อนหัวห้องเดิมถัดไป ไม่ยอมให้เกิดห้อง 1 จังหวะ; ไม่ใช้ผลถ้าบีตใหม่ลงหัวกลองน้อยกว่าเดิมชัดเจน
+- ถ้าเมโทรนอมทั้งเส้นไม่ตามกลอง (`drift_share`: เกิน 20% ของเพลงที่ค่ากลางของ 16 บีตห่างกลองเกิน 35 ms เช่นผู้ใช้กด "ตั้งเป็นจังหวะคงที่" กับเพลงที่ไหล) จุดเฉพาะจะหาไม่เจอ endpoint จึงเริ่มใหม่จากเมโทรนอมอัตโนมัติใน analysis ปรับ ×2/÷2 ให้ใกล้ BPM ที่ใช้อยู่ (`scaled_grid`) แล้วค่อยซ่อม และตอบ `rebuilt` ให้หน้าเว็บบอกผู้ใช้
+- หน้าเว็บเอาผลใส่ตัวแก้ไข (กดย้อนกลับได้) แล้วบันทึกตามปกติ ระหว่างล็อกใช้ไม่ได้ (409)
+- ทดสอบกับ "ยื้อ": จากเมโทรนอมอัตโนมัติ ×2 กดซ่อมแล้วล็อก 168 ผ่าน ยืดสูงสุด −10.9%/+13.4% กลองห่างคลิก median 7.3 ms ดีกว่าที่ผมแก้มือ เพลงที่ความเร็วนิ่งไม่ถูกแตะ
 
 **ทุกแทร็กยาวเท่ากัน** (`timeline_samples` = ความยาวเพลง + lead-in) เพื่อให้ export วางที่ 0 แล้วตรงกัน
 
@@ -250,6 +275,7 @@ STEM_STUDIO_DATA=/tmp/prism-test/data .venv/bin/python -m uvicorn app.main:app -
 - [ ] `node --check` ผ่าน, `ast.parse` ผ่าน
 - [ ] แก้ `app/` แล้วรีสตาร์ต (ถ้าเป็นเซิร์ฟเวอร์จริง ต้องไม่มีงาน queued/running)
 - [ ] ถ้าแก้ logic เสียงซ้าย/ขวา แก้ทั้ง `makeRoute` และ `render_mix`
+- [ ] ถ้าแปลงเวลาระหว่าง edits กับ UI/API ใช้ `project.to_timeline` / `to_song` (รองรับทั้ง lead-in และล็อกความเร็ว)
 - [ ] ถ้าแก้เนื้อหา export ต้องลบ `stems.zip` ของ job นั้น (โค้ดทำให้อยู่แล้วใน endpoint ที่แก้ edits)
 - [ ] ถ้าแก้ตัววิเคราะห์ ให้เพิ่ม `ANALYSIS_VERSION` และลองกับเพลงเปลี่ยนความเร็ว + เพลงคงที่
 - [ ] ข้อความ UI/เอกสารเป็นภาษาไทยพูด ไม่ใส่ข้อมูลส่วนตัว

@@ -551,3 +551,18 @@ select.edit-input { width: auto; font-family: var(--sans); }
 .add-pl-new .lib-search { flex: 1; width: auto; height: 30px; }
 .add-pl-new .btn { height: 30px; font-size: 13px; }
 .pl-pick .btn.done { border-color: var(--bass); color: var(--bass); }
+
+/* Trim before separating */
+.trim-dialog { width: min(760px, calc(100vw - 32px)); }
+.trim-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trim-body { display: grid; gap: 12px; padding: 14px; overflow-y: auto; }
+.trim-hint { margin: 0; color: var(--muted); font-size: 13.5px; }
+.trim-wave { height: 120px; cursor: pointer; touch-action: none; }
+.trim-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.trim-row .chip { height: 28px; font-size: 12.5px; }
+.trim-length { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.trim-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--line); }
+
+/* Tempo lock */
+.lock-field { display: inline-flex; align-items: center; gap: 6px; }
+.lock-bpm { width: 72px; }

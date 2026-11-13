@@ -49,7 +49,7 @@ function toast(message) {
   box.textContent = message;
   box.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { box.hidden = true; }, 4500);
+  toastTimer = setTimeout(() => { box.hidden = true; }, Math.max(4500, message.length * 70));
 }
 
 async function api(path, options) {
@@ -256,7 +256,7 @@ function setupUpload() {
   const zone = $("dropzone");
   const input = $("file-input");
   input.addEventListener("change", () => {
-    if (input.files[0]) upload(input.files[0]);
+    if (input.files[0]) chooseRange(input.files[0]);
     input.value = "";
   });
   for (const type of ["dragenter", "dragover"]) {
@@ -267,19 +267,250 @@ function setupUpload() {
   }
   zone.addEventListener("drop", (event) => {
     const file = event.dataTransfer.files[0];
-    if (file) upload(file);
+    if (file) chooseRange(file);
   });
   // A file dropped outside the zone should not navigate away from the app.
   for (const type of ["dragover", "drop"]) window.addEventListener(type, (event) => event.preventDefault());
 }
 
-function upload(file) {
+// ------------------------------------------------------------------ trim before separating
+
+const TRIM_PREVIEW_MAX_BYTES = 400 * 1024 * 1024;  // bigger files go straight to the server
+const TRIM_MIN_SECONDS = 1;
+const TRIM_EDGE = 0.05;  // closer than this to an end counts as "not cut"
+
+/** Let the person keep only part of the file before it is separated, e.g. cut a talky
+ * intro off a live recording. The browser decodes the file just for the preview; the
+ * server cuts the audio itself, so only two numbers travel with the upload. */
+function chooseRange(file) {
+  if (file.size > TRIM_PREVIEW_MAX_BYTES) return upload(file);
+  const dialog = $("trim-dialog");
+  const canvas = $("trim-wave");
+  const note = $("trim-note");
+  const startInput = $("trim-start");
+  const endInput = $("trim-end");
+  const state = { buffer: null, peaks: null, duration: 0, start: 0, end: 0, drag: null, source: null, playFrom: 0, playAt: 0, frame: 0 };
+  const ctx = new AudioContext();
+  const control = new AbortController();
+  const on = { signal: control.signal };
+  let done = false;
+
+  $("trim-title").textContent = file.name;
+  note.textContent = "กำลังเปิดไฟล์…";
+  note.hidden = false;
+  startInput.value = "";
+  endInput.value = "";
+  $("trim-length").textContent = "";
+  for (const id of ["trim-play", "trim-set-start", "trim-set-end", "trim-reset"]) $(id).disabled = true;
+  startInput.disabled = endInput.disabled = true;
+  dialog.showModal();
+  $("trim-go").focus();
+
+  const position = () => (state.source ? state.playFrom + (ctx.currentTime - state.playAt) : null);
+
+  const stop = () => {
+    if (state.source) {
+      state.source.onended = null;
+      try { state.source.stop(); } catch { /* already stopped */ }
+      state.source = null;
+    }
+    cancelAnimationFrame(state.frame);
+    $("trim-play").textContent = "ฟัง";
+    draw();
+  };
+
+  const play = (from, until = state.duration) => {
+    stop();
+    if (!state.buffer || from >= until) return;
+    const source = ctx.createBufferSource();
+    source.buffer = state.buffer;
+    source.connect(ctx.destination);
+    ctx.resume();
+    state.playFrom = from;
+    state.playAt = ctx.currentTime;
+    source.start(0, from, until - from);
+    source.onended = () => { if (state.source === source) stop(); };
+    state.source = source;
+    $("trim-play").textContent = "หยุด";
+    const tick = () => { draw(); state.frame = requestAnimationFrame(tick); };
+    tick();
+  };
+
+  const isWhole = () => state.start <= TRIM_EDGE && state.end >= state.duration - TRIM_EDGE;
+
+  const showTimes = () => {
+    startInput.value = plTime(state.start, 2);
+    endInput.value = plTime(state.end, 2);
+    const length = state.end - state.start;
+    $("trim-length").textContent = isWhole() ? `ทั้งเพลง ${fmtTime(state.duration)} นาที` : `เหลือ ${plTime(length, 1)} จาก ${fmtTime(state.duration)} นาที`;
+    $("trim-go").textContent = isWhole() ? "แยก stem" : "แยก stem เฉพาะช่วงนี้";
+  };
+
+  const setStart = (t) => { state.start = Math.round(Math.min(Math.max(0, t), state.end - TRIM_MIN_SECONDS) * 1000) / 1000; showTimes(); draw(); };
+  const setEnd = (t) => { state.end = Math.round(Math.max(Math.min(state.duration, t), state.start + TRIM_MIN_SECONDS) * 1000) / 1000; showTimes(); draw(); };
+
+  function draw() {
+    const ratio = window.devicePixelRatio || 1;
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+    if (!width) return;
+    if (canvas.width !== Math.round(width * ratio)) { canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio); }
+    const g = canvas.getContext("2d");
+    g.setTransform(ratio, 0, 0, ratio, 0, 0);
+    g.clearRect(0, 0, width, height);
+    if (!state.peaks) return;
+    const css = getComputedStyle(document.documentElement);
+    const color = (name) => css.getPropertyValue(name).trim();
+    const toX = (t) => (t / state.duration) * width;
+    const mid = height / 2;
+    const amp = height / 2 - 6;
+    const kept = color("--muted");
+    const cut = color("--line-strong");
+    for (let x = 0; x < width; x++) {
+      const a = Math.floor((x / width) * state.peaks.length);
+      const b = Math.max(a + 1, Math.floor(((x + 1) / width) * state.peaks.length));
+      let peak = 0;
+      for (let i = a; i < b && i < state.peaks.length; i++) peak = Math.max(peak, state.peaks[i]);
+      const h = Math.max(1, peak * amp);
+      const t = (x / width) * state.duration;
+      g.fillStyle = t >= state.start && t <= state.end ? kept : cut;
+      g.fillRect(x, mid - h, 1, h * 2);
+    }
+    // Shade what will be cut off.
+    g.fillStyle = "rgba(0, 0, 0, .45)";
+    g.fillRect(0, 0, toX(state.start), height);
+    g.fillRect(toX(state.end), 0, width - toX(state.end), height);
+    for (const [t, isStart] of [[state.start, true], [state.end, false]]) {
+      const x = Math.min(width - 2, Math.max(0, toX(t) - 1));
+      g.fillStyle = color("--bass");
+      g.fillRect(x, 0, 2, height);
+      g.fillRect(isStart ? x : x - 8, height - 14, 10, 14);
+    }
+    const pos = position();
+    if (pos !== null && pos <= state.duration) {
+      g.fillStyle = color("--vocals");
+      g.fillRect(toX(pos) - 1, 0, 2, height);
+    }
+  }
+
+  const timeAt = (event) => {
+    const box = canvas.getBoundingClientRect();
+    return Math.min(1, Math.max(0, (event.clientX - box.left) / box.width)) * state.duration;
+  };
+  const handleNear = (event) => {
+    const box = canvas.getBoundingClientRect();
+    const x = event.clientX - box.left;
+    const toX = (t) => (t / state.duration) * box.width;
+    const dStart = Math.abs(x - toX(state.start));
+    const dEnd = Math.abs(x - toX(state.end));
+    if (Math.min(dStart, dEnd) > 10) return null;
+    return dStart <= dEnd ? "start" : "end";
+  };
+  canvas.addEventListener("pointermove", (event) => {
+    if (!state.peaks) return;
+    if (state.drag) {
+      (state.drag === "start" ? setStart : setEnd)(timeAt(event));
+      return;
+    }
+    canvas.style.cursor = handleNear(event) ? "ew-resize" : "pointer";
+  }, on);
+  canvas.addEventListener("pointerdown", (event) => {
+    if (!state.peaks) return;
+    const near = handleNear(event);
+    if (near) {
+      state.drag = near;
+      canvas.setPointerCapture(event.pointerId);
+      return;
+    }
+    const t = timeAt(event);
+    play(t, t < state.end ? state.end : state.duration);
+  }, on);
+  const endDrag = () => { state.drag = null; };
+  canvas.addEventListener("pointerup", endDrag, on);
+  canvas.addEventListener("pointercancel", endDrag, on);
+
+  $("trim-play").addEventListener("click", () => (state.source ? stop() : play(state.start, state.end)), on);
+  $("trim-set-start").addEventListener("click", () => { const p = position(); if (p !== null) setStart(p); }, on);
+  $("trim-set-end").addEventListener("click", () => { const p = position(); if (p !== null) setEnd(p); }, on);
+  $("trim-reset").addEventListener("click", () => { state.start = 0; state.end = state.duration; showTimes(); draw(); }, on);
+  for (const [input, set] of [[startInput, setStart], [endInput, setEnd]]) {
+    input.addEventListener("change", () => {
+      const t = plParseTime(input.value);
+      if (t === null) showTimes();
+      else set(t);
+    }, on);
+    input.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); input.blur(); } }, on);
+  }
+  dialog.addEventListener("keydown", (event) => {
+    if (event.target instanceof HTMLInputElement || !state.peaks) return;
+    const p = position();
+    if (event.key === "i" && p !== null) setStart(p);
+    else if (event.key === "o" && p !== null) setEnd(p);
+    else if (event.key === " ") { event.preventDefault(); if (state.source) stop(); else play(state.start, state.end); }
+  }, on);
+  // Space plays here, so it must not also press whichever button has focus.
+  dialog.addEventListener("keyup", (event) => {
+    if (event.key === " " && !(event.target instanceof HTMLInputElement)) event.preventDefault();
+  }, on);
+  window.addEventListener("resize", draw, on);
+
+  const finish = (go) => {
+    if (done) return;
+    done = true;
+    stop();
+    control.abort();
+    ctx.close();
+    if (dialog.open) dialog.close();
+    if (!go) return;
+    upload(file, state.peaks && !isWhole() ? { start: state.start, end: state.end >= state.duration - TRIM_EDGE ? null : state.end } : null);
+  };
+  $("trim-go").addEventListener("click", () => finish(true), on);
+  $("trim-cancel").addEventListener("click", () => finish(false), on);
+  $("trim-close").addEventListener("click", () => finish(false), on);
+  dialog.addEventListener("close", () => finish(false), on);
+
+  file.arrayBuffer()
+    .then((bytes) => ctx.decodeAudioData(bytes))
+    .then((buffer) => {
+      if (done) return;
+      state.buffer = buffer;
+      state.duration = buffer.duration;
+      state.end = buffer.duration;
+      const channels = Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i));
+      const count = Math.min(4000, buffer.length);
+      const size = buffer.length / count;
+      const peaks = new Float32Array(count);
+      for (let i = 0; i < count; i++) {
+        let peak = 0;
+        const from = Math.floor(i * size);
+        const to = Math.floor((i + 1) * size);
+        for (const data of channels) for (let j = from; j < to; j += 4) peak = Math.max(peak, Math.abs(data[j]));
+        peaks[i] = Math.min(1, peak);
+      }
+      state.peaks = peaks;
+      note.hidden = true;
+      for (const id of ["trim-play", "trim-set-start", "trim-set-end", "trim-reset"]) $(id).disabled = false;
+      startInput.disabled = endInput.disabled = false;
+      showTimes();
+      draw();
+    })
+    .catch(() => {
+      if (done) return;
+      note.textContent = "เปิดตัวอย่างไฟล์นี้ในเบราว์เซอร์ไม่ได้ ตัดช่วงไม่ได้ แต่ยังแยกทั้งเพลงได้";
+    });
+}
+
+function upload(file, trim = null) {
   show("processing");
   setProgress({ title: file.name, percent: 0, message: "กำลังอัปโหลดไฟล์", stage: "upload" });
   $("proc-error").hidden = true;
   const form = new FormData();
   form.append("file", file);
   form.append("model", selectedModel);
+  if (trim) {
+    form.append("trim_start", String(trim.start));
+    if (trim.end !== null) form.append("trim_end", String(trim.end));
+  }
   const request = new XMLHttpRequest();
   request.open("POST", "/api/jobs");
   request.upload.onprogress = (event) => {
@@ -623,7 +854,9 @@ async function showStudio(job, keep = null) {
   const leadBars = analysis.lead_in?.bars ?? 0;
 
   $("song-title").textContent = job.title;
-  $("song-sub").textContent = `${modelTitle(job.model)} · ประมวลผล ${fmtTime(job.elapsed ?? 0)} นาที บน ${job.device}`;
+  const trimmed = job.trim ? ` · ใช้ช่วง ${plTime(job.trim.start, 1)}–${job.trim.end == null ? "ท้ายไฟล์" : plTime(job.trim.end, 1)} ของไฟล์` : "";
+  $("song-sub").textContent = `${modelTitle(job.model)} · ประมวลผล ${fmtTime(job.elapsed ?? 0)} นาที บน ${job.device}${trimmed}`;
+  $("song-sub").title = $("song-sub").textContent;  // the line is cut short on narrow windows
   document.title = `${job.title} · Prism`;
   $("time-total").textContent = fmtTime(analysis.duration);
   if (!keep) $("time-now").textContent = "0:00";
@@ -1710,6 +1943,10 @@ async function showStudio(job, keep = null) {
   }
 
   function setEditMode(on) {
+    if (on && analysis.tempo_lock) {
+      toast("ความเร็วถูกล็อกอยู่ ปลดล็อกก่อนถึงจะแก้เมโทรนอมได้");
+      return;
+    }
     editMode = on;
     $("metro-panel").hidden = !on;
     $("btn-edit-click").setAttribute("aria-pressed", on);
@@ -1726,7 +1963,10 @@ async function showStudio(job, keep = null) {
     layout();
   }
 
+  if (analysis.tempo_lock) editMode = false;
   $("btn-edit-click").hidden = !mixer.tracks.has(CLICK);
+  $("btn-edit-click").disabled = Boolean(analysis.tempo_lock);
+  $("btn-edit-click").title = analysis.tempo_lock ? "ความเร็วถูกล็อกอยู่ ปลดล็อกก่อนถึงจะแก้เมโทรนอมได้" : "";
   $("btn-edit-click").setAttribute("aria-pressed", editMode);
   $("metro-panel").hidden = !editMode;
   $("btn-edit-click").addEventListener("click", () => setEditMode(!editMode), on);
@@ -1754,6 +1994,53 @@ async function showStudio(job, keep = null) {
     afterGridChange();
   }, on);
   $("beat-delete").addEventListener("click", () => { if (selectedBeat !== null) deleteBeat(selectedBeat); }, on);
+  // Rebuild the spots where the click has slipped off the drums (server-side, see gridfix.py).
+  $("metro-repair").hidden = !mixer.tracks.has("drums");
+  $("metro-repair").addEventListener("click", async () => {
+    const button = $("metro-repair");
+    const lockBpm = Number($("lock-bpm").value);
+    button.disabled = true;
+    button.textContent = "กำลังเทียบกับกลอง…";
+    try {
+      const result = await api(`/api/jobs/${job.id}/click/repair`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          beats: beats.map((b) => b.t), downbeats: beats.filter((b) => b.down).map((b) => b.t), meter,
+          bpm: lockBpm >= 30 && lockBpm <= 300 ? lockBpm : null,
+        }),
+      });
+      if (!alive) return;
+      if (!result.fixed.length && !result.rebuilt) {
+        toast(result.left.length ? `เจอจุดที่เพี้ยนแต่ซ่อมเองไม่ได้ ที่ ${result.left.map(fmtTime).join(", ")} ลองแก้ด้วยมือ` : "ไม่เจอจุดที่ต้องซ่อม เมโทรนอมตรงกับกลองดีแล้ว");
+        return;
+      }
+      pushUndo();
+      const downs = new Set(result.downbeats.map(round3));
+      beats = result.beats.map((t) => ({ t: round3(t), down: downs.has(round3(t)) }));
+      meter = result.meter;
+      selectedBeat = null;
+      afterGridChange();
+      const describe = (f) => {
+        const where = `${fmtTime(f.start)}–${fmtTime(f.end)}`;
+        if (f.change < 0) return `${where} ลบ ${-f.change} บีต`;
+        if (f.change > 0) return `${where} เพิ่ม ${f.change} บีต`;
+        return `${where} จัดระยะใหม่`;
+      };
+      const left = result.left.length ? ` · ยังเหลือที่ ${result.left.map(fmtTime).join(", ")} ต้องแก้ด้วยมือ` : "";
+      const rebuilt = result.rebuilt
+        ? `เมโทรนอมเดิมไม่ตามกลอง (เหลื่อมราว ${Math.round(result.rebuilt.drift * 100)}% ของเพลง) เลยสร้างใหม่จากเมโทรนอมอัตโนมัติ${result.rebuilt.factor === 2 ? " ×2" : result.rebuilt.factor === 0.5 ? " ÷2" : ""} แล้ว`
+        : "";
+      const repaired = result.fixed.length ? `ซ่อม ${result.fixed.length} จุด: ${result.fixed.map(describe).join(", ")}` : "";
+      toast(`${[rebuilt, repaired].filter(Boolean).join(" ")}${left} (กดย้อนกลับได้)`);
+    } catch (error) {
+      if (alive) toast(error.message);
+    } finally {
+      if (alive) {
+        button.disabled = false;
+        button.textContent = "ซ่อมจุดที่เพี้ยน";
+      }
+    }
+  }, on);
   $("metro-undo").disabled = true;
   $("metro-undo").addEventListener("click", () => {
     const previous = undoStack.pop();
@@ -2217,6 +2504,46 @@ async function showStudio(job, keep = null) {
     }
   }, on);
 
+  // ---- tempo lock: stretch the audio so every beat of the metronome is the same length
+  const lock = analysis.tempo_lock;
+  const lockBeats = gridSource.beats;
+  const suggestedBpm = lockBeats.length > 1 ? (60 * (lockBeats.length - 1)) / (lockBeats.at(-1) - lockBeats[0]) : null;
+  $("lock-field").hidden = !mixer.tracks.has(CLICK) || !suggestedBpm;
+  $("lock-bpm").value = lock ? String(lock.bpm) : suggestedBpm ? String(Math.round(suggestedBpm)) : "";
+  $("lock-bpm").disabled = Boolean(lock);
+  $("btn-lock").disabled = false;
+  $("btn-lock").textContent = lock ? "ปลดล็อก" : "ล็อก";
+  $("btn-lock").setAttribute("aria-pressed", String(Boolean(lock)));
+  $("lock-field").title = lock
+    ? `ล็อกที่ ${lock.bpm} BPM แล้ว เสียงทุกแทร็กถูกยืดหรือหด ${lock.range ? `${lock.range.slowest}% ถึง +${lock.range.fastest}%` : ""} ให้ทุกบีตเท่ากัน ปลดล็อกแล้วกลับเป็นเสียงเดิม`
+    : `ยืดหรือหดเสียงทุกแทร็กเท่ากัน ให้ทุกบีตยาวเท่ากันที่ความเร็วนี้ เพลงนี้เฉลี่ย ${suggestedBpm?.toFixed(1)} BPM`;
+  $("btn-lock").addEventListener("click", async () => {
+    const bpm = lock ? null : Number($("lock-bpm").value);
+    if (!lock && !(bpm >= 30 && bpm <= 300)) return toast("ใส่ความเร็วระหว่าง 30 ถึง 300 BPM");
+    $("btn-lock").disabled = true;
+    $("lock-bpm").disabled = true;
+    $("load-note").textContent = lock ? "กำลังเอาเสียงเดิมกลับมา…" : `กำลังยืดเสียงทุกแทร็กให้นิ่งที่ ${bpm} BPM…`;
+    try {
+      await flushGrid();
+      const result = await api(`/api/jobs/${job.id}/tempo-lock`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bpm, position: mixer.position() }),
+      });
+      await reopen([...mixer.tracks.keys()], (state) => {
+        if (result.position !== null) state.position = Math.max(0, result.position);
+        state.scrollLeft = Math.max(0, state.scrollLeft + (state.position - mixer.position()) * view.pps);
+      });
+      toast(result.bpm
+        ? `ล็อกที่ ${result.bpm} BPM แล้ว ทุกบีตยาวเท่ากัน (ยืดเสียง ${result.range.slowest}% ถึง +${result.range.fastest}%)`
+        : "ปลดล็อกแล้ว กลับเป็นเสียงและเมโทรนอมเดิม");
+    } catch (error) {
+      if (!alive) return;
+      $("btn-lock").disabled = false;
+      $("lock-bpm").disabled = Boolean(lock);
+      $("load-note").textContent = "";
+      toast(error.message);
+    }
+  }, on);
+
   // ---- cutting a region out into its own track
   function renderSelectionBar() {
     $("sel-bar").hidden = !selection;
@@ -2620,6 +2947,7 @@ function renderResources(job) {
 }
 
 function tempoStat(a, stability, source) {
+  if (a.tempo_lock) return stat("ความเร็ว (BPM)", Number(a.tempo_lock.bpm).toFixed(1), "ล็อกแล้ว · ทุกบีตยาวเท่ากัน");
   const summary = a.tempo_summary;
   const sections = a.tempo_map ?? [];
   if (!summary || summary.changes === 0 || summary.main === null) {
