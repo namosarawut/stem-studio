@@ -24,7 +24,7 @@
 
 ## 1. Prism คืออะไร
 
-เว็บแอปที่รันบน Mac ของผู้ใช้เอง (ไม่อัปโหลดอะไรขึ้นเน็ต) สำหรับนักดนตรีที่ต้อง **เตรียม data ให้วงเล่นสด / เป็น sound MD**:
+เว็บแอปที่รันบน Mac ของผู้ใช้เอง (ไม่อัปโหลดเสียงขึ้นเน็ต; ข้อยกเว้นเดียวคือปุ่ม "ให้ Claude ช่วยดู" ที่ผู้ใช้เปิดเอง ส่งแค่ตัวเลขจังหวะ ดู §7) สำหรับนักดนตรีที่ต้อง **เตรียม data ให้วงเล่นสด / เป็น sound MD**:
 
 - แยกเพลงเป็น stem ด้วย AI (Demucs; แยกร้องนำ/คอรัสด้วย MelBand Roformer)
 - วิเคราะห์เพลง: BPM (รองรับเพลงที่ความเร็วเปลี่ยนกลางเพลง), คีย์, คอร์ด, ท่อนเพลง, loop
@@ -72,6 +72,8 @@ Browser (vanilla JS, ไม่มี build)  ──HTTP──▶  FastAPI (app/m
 | `app/cues.py` | ~350 | ไลบรารีวลี, `COUNT_STYLES`, TTS ด้วย `say` + cache, `render` แทร็ก cue |
 | `app/metronome.py` | ~48 | `write_wav_atomic`, `render_click` |
 | `app/midi.py` | ~150 | `tempo_map`: ไฟล์ MIDI จากกริดเมโทรนอม (ดู §7) |
+| `app/assistant.py` | ~420 | ปุ่ม "ให้ Claude ช่วยดู": Claude Code CLI ก่อน (ไม่ใช้ key) ไม่งั้น Claude API + เครื่องมือ 5 ตัวแก้เมโทรนอมบนสำเนา (ดู §7) |
+| `app/bench_mcp.py` | ~70 | MCP server (stdio) ที่ให้ `claude -p` เรียกเครื่องมือ 5 ตัว อ่าน/เขียนสถานะจากไฟล์ |
 | `app/gridfix.py` | ~230 | ซ่อมเมโทรนอมจากเสียงกลอง (ปุ่ม "ซ่อมจุดที่เพี้ยน", ดู §7) |
 | `app/warp.py` | ~190 | ล็อกความเร็ว: time map จากบีต, กรองบีตเพี้ยน, ยืดเสียงแบบ WSOLA ใช้แผนเดียวกันทุกแทร็ก (ดู §7) |
 | `app/monitor.py` | ~210 | รายงานทรัพยากรต่อ job (CPU, RAM, GPU ผ่าน `ioreg`, ดิสก์) |
@@ -129,6 +131,7 @@ models/                น้ำหนักโมเดล (TORCH_HOME) + model
 | งาน | `GET/POST /api/jobs` (POST รับ `trim_start`, `trim_end` ได้), `GET/DELETE /api/jobs/{id}`, `GET /api/jobs/{id}/analysis` |
 | เมโทรนอม | `PUT/DELETE /api/jobs/{id}/click` |
 | ห้องนับ | `PUT /api/jobs/{id}/lead-in` |
+| Claude | `GET /api/assistant` (พร้อมไหม/ที่มาของ key ไม่คืน key), `PUT/DELETE /api/assistant/key`, `POST /api/jobs/{id}/click/assist` (เหมือน repair แต่ให้ Claude ทำ ไม่บันทึก) |
 | ซ่อมเมโทรนอม | `POST /api/jobs/{id}/click/repair` `{beats, downbeats, meter, bpm?}` (เวลา timeline) คืนกริดที่ซ่อมแล้ว ไม่บันทึก |
 | ล็อกความเร็ว | `PUT /api/jobs/{id}/tempo-lock` `{bpm: number|null, position?}` (null = ปลดล็อก) |
 | cue | `GET /api/cues/library`, `GET /api/cues/preview`, `PUT /api/jobs/{id}/cues` |
@@ -162,6 +165,16 @@ models/                น้ำหนักโมเดล (TORCH_HOME) + model
 - ลำดับเรนเดอร์: `stems/` → ตัดช่วง `edited/` → ล็อก `warped/` → lead-in `padded/` (`serve_path` เลือกตัวสุดท้ายที่มี) การตัดช่วงขณะล็อกจะยืดใหม่ทั้งชุด
 - ขณะล็อก แก้เมโทรนอมไม่ได้ (409) กริดคือค่าคงที่จาก snapshot ใน `edits.warp`; ช่วงนับคำนวณใหม่ตามความเร็วที่ล็อก; cue/ท่อน/คอร์ดย้ายตาม time map; MIDI เขียน tempo ค่าเดียว
 - ปลดล็อกแล้วไฟล์ที่เสิร์ฟกลับมาเหมือนก่อนล็อกทุกไบต์ (ทดสอบแล้ว)
+
+**ให้ Claude ช่วยดู** (`assistant.py`, ปุ่มในแผงแก้เมโทรนอม): ไม่บังคับ และเป็นส่วนเดียวที่ส่งข้อมูลออกนอกเครื่อง
+- ส่งเฉพาะตัวเลข: เวลาบีต, เวลาที่กลอง/เบสตีพร้อมความแรง, ชื่อท่อน ไม่ส่งเสียง ชื่อไฟล์ หรือชื่อเพลง หน้าต่างบอกผู้ใช้ทุกครั้งก่อนส่ง **ถ้าจะเพิ่มข้อมูลที่ส่ง ต้องแก้ข้อความในหน้าต่างและ README ด้วย**
+- ทางเรียก (`backend()`): **Claude Code CLI ก่อน** ถ้ามี `claude` และ `claude auth status` บอกว่าล็อกอิน (ใช้บัญชีของผู้ใช้ ไม่ต้องใช้ key) ไม่งั้นใช้ API ถ้ามี key
+- CLI (`run_cli`): `claude -p` ในโฟลเดอร์ชั่วคราว `--tools ""` (ปิด Bash/Read/Write ทั้งหมด) `--mcp-config` ที่ชี้ไป `python -m app.bench_mcp state.json` + `--strict-mcp-config` `--allowedTools mcp__prism__*` `--permission-mode dontAsk` `--setting-sources ""` `--no-session-persistence` `--output-format json` `--model opus --effort high` timeout 10 นาที อ่านผลจาก state.json หลังจบ; ตัดตัวแปร env ของ Claude Code session ออก (`_cli_env`) เผื่อ Prism ถูกเปิดจากใน Claude Code; token หมดอายุ → บอกให้ `claude auth login`
+- key สำหรับทาง API: `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`, โปรไฟล์ `ant auth login`, หรือ key ที่วางในหน้าเว็บ เก็บที่ `~/.config/prism/anthropic-key` (chmod 600 นอก repo) API ไม่เคยส่ง key กลับ
+- ลูปเขียนเอง (`run`, สูงสุด 30 รอบ) model `claude-opus-5-5`, effort high, `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`) เครื่องมือ: `overview`, `get_beats`, `apply_auto_repair`, `replace_beats`, `check_lock` ทำงานบน `Workbench` (สำเนากริดในเวลา timeline) จบด้วยคำอธิบายภาษาไทย + ค่าใช้จ่ายโดยประมาณ
+- ทำทีละงาน (`assist_lock`), ระหว่างล็อกความเร็วใช้ไม่ได้, ผลใส่ตัวแก้ไขเมื่อกด "ใช้ผลนี้" เท่านั้น (ย้อนกลับได้)
+- `start.command` ติดตั้ง `anthropic` แยกถ้ายังไม่มี โดยไม่สร้าง `.venv` ใหม่
+- ทดสอบแล้ว: ลูป API ด้วย client จำลอง, MCP server ผ่าน stdio, `claude -p` ต่อ MCP ได้และเจอ error ล็อกอินถูกข้อความ, หน้าเว็บด้วย fetch จำลอง และเรียกจริงผ่าน CLI กับสำเนา "ยื้อ" (เมโทรนอมอัตโนมัติ ×2): 34 วินาที, ~20K+1.4K token (เทียบราคา API $0.08, แพ็กเกจ Pro นับเป็นโควตา) ล็อก 168 ผ่าน และอธิบายห้อง 2 จังหวะที่ 2:29 พร้อมหลักฐานจากกลอง; ถ้า CLI ตอบ "OAuth access token has expired" ให้ผู้ใช้ `claude auth logout` แล้ว `claude auth login` ใน Terminal เอง
 
 **ซ่อมเมโทรนอมอัตโนมัติ** (`gridfix.py`, ปุ่ม "ซ่อมจุดที่เพี้ยน" ในแผงแก้เมโทรนอม): หาจุดเดียวกับที่การล็อกจะยืดเกิน 10% (จุดที่ห่างกันไม่เกิน 16 บีตรวมเป็นจุดเดียว) แล้วสร้างใหม่จากเสียงกลอง (onset ของ stem กลอง, cache ในหน่วยความจำ)
 - ยึดหัวท้ายด้วยบีตที่ตรงหัวกลองติดกันสองบีต ลองช่วงใกล้ก่อนแล้วขยายออก 2 ครั้ง เลือกช่วงที่ไม่ต้องเปลี่ยนจำนวนบีตก่อน (มักเป็นบีตหนึ่งเร็วไปอีกบีตช้าไป)

@@ -36,7 +36,7 @@ from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
-from . import cues as cue_track, gridfix, midi, playlists, project, separator, warp  # noqa: E402
+from . import assistant, cues as cue_track, gridfix, midi, playlists, project, separator, warp  # noqa: E402
 from .analyzer import ANALYSIS_VERSION, STEM_THAI, _peaks, analyze  # noqa: E402
 from .metronome import render_click  # noqa: E402
 from .monitor import ResourceMonitor  # noqa: E402
@@ -542,6 +542,78 @@ def repair_click(job_id: str, request: RepairRequest) -> dict:
         "fixed": [{**f, "start": round(project.to_timeline(edits, f["start"]), 3), "end": round(project.to_timeline(edits, f["end"]), 3)} for f in result["fixed"]],
         "left": timeline(result["left"]),
     }
+
+
+class AssistKey(BaseModel):
+    key: str
+
+
+assist_lock = threading.Lock()
+
+
+@app.get("/api/assistant")
+def assistant_status() -> dict:
+    """Whether Claude can be asked, and where the credential comes from (never the key)."""
+    via = assistant.backend()
+    return {"ready": via is not None, "via": via, "source": assistant.credential_source(), "model": assistant.MODEL,
+            "cli_installed": assistant.claude_cli() is not None}
+
+
+@app.put("/api/assistant/key")
+def assistant_save_key(request: AssistKey) -> dict:
+    try:
+        assistant.save_key(request.key)
+    except assistant.AssistantError as error:
+        raise HTTPException(422, str(error))
+    return assistant_status()
+
+
+@app.delete("/api/assistant/key")
+def assistant_forget_key() -> dict:
+    assistant.forget_key()
+    return assistant_status()
+
+
+@app.post("/api/jobs/{job_id}/click/assist")
+def assist_click(job_id: str, request: RepairRequest) -> dict:
+    """Ask Claude to fix the metronome (opt-in, sends beat and hit times to Anthropic). The
+    result is a proposal for the editor, like the automatic repair; nothing is saved."""
+    job = editable_job(job_id)
+    folder = job_dir(job_id)
+    edits = project.load_edits(folder)
+    refuse_when_locked(edits)
+    if assistant.backend() is None:
+        raise HTTPException(409, "ไม่พบ Claude Code ในเครื่อง และยังไม่ได้ตั้งค่า Claude API key")
+    if "drums" not in project.active_stems(job):
+        raise HTTPException(422, "เพลงนี้ไม่มีแทร็กกลอง")
+    if not request.beats or len(request.beats) > project.MAX_BEATS or not 1 <= request.meter <= 12:
+        raise HTTPException(422, "ข้อมูลเมโทรนอมไม่ถูกต้อง")
+    if not assist_lock.acquire(blocking=False):
+        raise HTTPException(409, "Claude กำลังดูเพลงอื่นอยู่ รอให้เสร็จก่อน")
+    try:
+        analysis = read_analysis_file(job_id)
+        drum_times, drum_strength = gridfix.onsets(project.stem_path(folder, "drums"))
+        bass_times, bass_strength = (gridfix.onsets(project.stem_path(folder, "bass"))
+                                     if "bass" in project.active_stems(job) else (np.array([]), np.array([])))
+        on_timeline = lambda times: np.asarray([project.to_timeline(edits, float(t)) for t in times])  # noqa: E731
+        drum_times, bass_times = on_timeline(drum_times), on_timeline(bass_times)
+        strong = drum_strength > gridfix.HIT_STRENGTH
+        bpm = request.bpm or 60.0 * (len(request.beats) - 1) / (max(request.beats) - min(request.beats))
+        bench = assistant.Workbench(
+            request.beats, request.downbeats, request.meter, bpm,
+            drum_times[strong], bass_times[bass_strength > gridfix.HIT_STRENGTH] if len(bass_times) else bass_times,
+            drum_strength[strong], bass_strength[bass_strength > gridfix.HIT_STRENGTH] if len(bass_times) else bass_strength,
+            [{"label": s["label"], "start": round(project.to_timeline(edits, s["start"]), 2), "end": round(project.to_timeline(edits, s["end"]), 2)}
+             for s in analysis.get("sections", [])],
+            project.to_timeline(edits, analysis["duration"]),
+        )
+        try:
+            result = assistant.run(bench)
+        except assistant.AssistantError as error:
+            raise HTTPException(502, str(error))
+    finally:
+        assist_lock.release()
+    return {**result, "beats": bench.beats, "downbeats": sorted(bench.downs), "meter": bench.meter}
 
 
 @app.delete("/api/jobs/{job_id}/click")

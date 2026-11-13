@@ -20,6 +20,8 @@ Improvement backlog and known gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
 - Code changes in `app/` need a server restart; `static/` is served with `Cache-Control: no-cache`
   (a reload is enough). Restart the main server only when `/api/jobs` shows nothing queued/running.
 - macOS only in practice: Demucs uses Apple GPU (MPS) and cues use the `say` command.
+- Nothing leaves the machine except the opt-in "ask Claude" button (`app/assistant.py`), which sends only
+  numbers (beat and hit times, section names). Keep it that way and keep the dialog text accurate.
 
 ## Testing safely (important)
 
@@ -44,6 +46,8 @@ Improvement backlog and known gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
 | `app/cues.py` | Cue library (135 phrases, 6 categories), count-in styles, `say` TTS cache, cue track render |
 | `app/metronome.py` | `write_wav_atomic`, click track render |
 | `app/midi.py` | MIDI tempo map export (tempo per beat, time signatures, section markers, click notes) |
+| `app/assistant.py` | Optional "ask Claude" (opt-in, sends only beat/hit times and section names): Claude Code CLI (`claude -p`, built-in tools off) or the Claude API, editing a copy of the metronome through 5 tools |
+| `app/bench_mcp.py` | Minimal stdio MCP server that serves those 5 tools to `claude -p` |
 | `app/gridfix.py` | Metronome repair from the drum stem ("ซ่อมจุดที่เพี้ยน"): rebuilds spots that slipped off the drums |
 | `app/warp.py` | Tempo lock: beat time map, kink filtering, WSOLA stretch with one shared plan for all tracks |
 | `app/monitor.py` | Per-job resource report (CPU, RAM, GPU via `ioreg`, disk) |

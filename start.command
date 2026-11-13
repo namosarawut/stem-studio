@@ -33,6 +33,10 @@ if ! .venv/bin/python -c "import demucs, fastapi, librosa, audio_separator, psut
   .venv/bin/pip install --quiet -r requirements.txt
 fi
 
+# Added later (optional "ask Claude" in the metronome editor): install it on its own so an
+# existing setup does not rebuild the whole environment.
+.venv/bin/python -c "import anthropic" >/dev/null 2>&1 || .venv/bin/pip install --quiet "anthropic>=2.8,<3" || true
+
 if curl -fsS "$URL/api/system" >/dev/null 2>&1; then
   echo "Prism ทำงานอยู่แล้วที่ $URL"
   open "$URL"

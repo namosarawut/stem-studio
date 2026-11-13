@@ -37,11 +37,12 @@ JOIN_BEATS = 16         # spots this close are rebuilt as one
 DRIFT_SECONDS = 0.035   # a stretch of beats this far off the drums on average has drifted
 DRIFT_SHARE = 0.2       # a grid drifted over this share of its length no longer follows the song
 
-_cache: dict[tuple[str, int], np.ndarray] = {}
+_cache: dict[tuple[str, int], tuple[np.ndarray, np.ndarray]] = {}
 
 
-def drum_hits(path: Path) -> np.ndarray:
-    """Times of clear drum hits, cached per file version."""
+def onsets(path: Path) -> tuple[np.ndarray, np.ndarray]:
+    """Onset times of a track and their strength (share of the loudest), cached per file
+    version. Weak onsets (under 5 %) are dropped."""
     import librosa
 
     key = (str(path), path.stat().st_mtime_ns)
@@ -50,10 +51,18 @@ def drum_hits(path: Path) -> np.ndarray:
         envelope = librosa.onset.onset_strength(y=y, sr=sr, hop_length=128)
         frames = librosa.onset.onset_detect(onset_envelope=envelope, sr=sr, units="frames", hop_length=128)
         times = librosa.frames_to_time(frames, sr=sr, hop_length=128)
-        peak = float(envelope.max()) or 1.0
-        _cache.clear()  # one song at a time is plenty
-        _cache[key] = np.asarray(times[envelope[frames] / peak > HIT_STRENGTH], dtype=np.float64)
+        strength = envelope[frames] / (float(envelope.max()) or 1.0)
+        keep = strength > 0.05
+        if len(_cache) > 4:
+            _cache.clear()
+        _cache[key] = (np.asarray(times[keep], dtype=np.float64), np.asarray(strength[keep], dtype=np.float64))
     return _cache[key]
+
+
+def drum_hits(path: Path) -> np.ndarray:
+    """Times of clear drum hits."""
+    times, strength = onsets(path)
+    return times[strength > HIT_STRENGTH]
 
 
 def _near(hits: np.ndarray, t: float, window: float) -> float | None:

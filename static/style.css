@@ -566,3 +566,9 @@ select.edit-input { width: auto; font-family: var(--sans); }
 /* Tempo lock */
 .lock-field { display: inline-flex; align-items: center; gap: 6px; }
 .lock-bpm { width: 72px; }
+
+/* Ask Claude */
+.claude-dialog { width: min(640px, calc(100vw - 32px)); }
+.claude-key { flex: 1; min-width: 200px; }
+.claude-facts { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13.5px; display: grid; gap: 4px; }
+.claude-explanation { margin: 0; white-space: pre-wrap; line-height: 1.7; }
