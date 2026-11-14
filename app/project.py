@@ -343,6 +343,30 @@ def lock_tempo(analysis: dict, edits: dict, bpm: float) -> dict:
     return edits["warp"]
 
 
+LISTEN_STRETCH = 0.10   # a lock that stretches a stretch of beats more than this is worth hearing
+
+
+def listen_spots(edits: dict) -> list[dict]:
+    """Where a locked song is worth checking by ear, on the timeline: stretches the lock
+    moved by more than LISTEN_STRETCH, and bars that are not `meter` beats long."""
+    lock = edits.get("warp")
+    if not lock:
+        return []
+    from .gridfix import problem_spots  # gridfix imports project-free modules only
+
+    beats = np.asarray(lock["beats"], dtype=np.float64)
+    spots = [{"time": round(to_timeline(edits, float(beats[lo])), 3), "end": round(to_timeline(edits, float(beats[hi])), 3),
+              "why": f"เสียงถูกยืดหรือหด {round(worst * 100)}%"}
+             for lo, hi, worst in problem_spots(beats, lock["bpm"], LISTEN_STRETCH, join=8)]
+    downs = {round(d, 3) for d in lock["downbeats"]}
+    bars = [i for i, b in enumerate(lock["beats"]) if round(b, 3) in downs]
+    for a, b in zip(bars, bars[1:]):
+        if b - a != lock["meter"]:
+            t = round(to_timeline(edits, float(beats[a])), 3)
+            spots.append({"time": t, "end": round(to_timeline(edits, float(beats[b])), 3), "why": f"ห้องนี้มี {b - a} จังหวะ"})
+    return sorted(spots, key=lambda s: s["time"])
+
+
 def base_grid(analysis: dict, edits: dict) -> dict:
     """The metronome in locked time: steady at the locked tempo, else as edited/analyzed."""
     lock = edits.get("warp")
@@ -488,7 +512,7 @@ def merged_view(folder: Path, analysis: dict, edits: dict) -> dict:
         "sections": [{**s, "start": shift(s["start"]), "end": shift(s["end"])} for s in analysis["sections"]],
         "chords": [{**c, "start": shift(c["start"]), "end": shift(c["end"])} for c in analysis["chords"]],
         "tempo": {**tempo, "beats": [shift(t) for t in tempo["beats"]], "downbeats": [shift(t) for t in tempo["downbeats"]]},
-        "tempo_lock": {"bpm": edits["warp"]["bpm"], "range": edits["warp"].get("range")} if edits.get("warp") else None,
+        "tempo_lock": {"bpm": edits["warp"]["bpm"], "range": edits["warp"].get("range"), "listen": listen_spots(edits)} if edits.get("warp") else None,
         "lead_in": {"bars": (edits.get("lead_in") or {}).get("bars", 0), "seconds": round(lead, 6)},
         "stems": stems,
         "tracks": edits["tracks"],

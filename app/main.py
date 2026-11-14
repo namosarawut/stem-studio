@@ -1,6 +1,7 @@
 """Prism local server: upload, queue, separate, analyze, serve."""
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -25,6 +26,7 @@ DATA_DIR = Path(os.environ.get("STEM_STUDIO_DATA", ROOT / "data")) / "jobs"
 STATIC_DIR = ROOT / "static"
 LIBRARY_DIR = DATA_DIR.parent / "library"      # songs imported for setlists
 PLAYLIST_DIR = DATA_DIR.parent / "playlists"
+TRASH_DIR = DATA_DIR.parent / "trash"           # deletes wait here for trash.KEEP_DAYS days
 
 # Keep model weights beside the app, and let Metal fall back to CPU for any
 # unsupported op. Both must be set before torch is imported.
@@ -36,7 +38,7 @@ from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
-from . import assistant, cues as cue_track, gridfix, midi, playlists, project, separator, warp  # noqa: E402
+from . import assistant, cues as cue_track, gridfix, midi, playlists, project, separator, trash, warp  # noqa: E402
 from .analyzer import ANALYSIS_VERSION, STEM_THAI, _peaks, analyze  # noqa: E402
 from .metronome import render_click  # noqa: E402
 from .monitor import ResourceMonitor  # noqa: E402
@@ -291,6 +293,7 @@ def restore_jobs() -> None:
 @app.on_event("startup")
 def on_startup() -> None:
     restore_jobs()
+    trash.purge(TRASH_DIR)
     threading.Thread(target=worker, daemon=True, name="stem-worker").start()
 
 
@@ -303,10 +306,25 @@ def system_info() -> dict:
     }
 
 
+STARTED = f"{time.time():.6f}"
+
+
+@app.get("/api/version")
+def version() -> dict:
+    """Changes when the server restarts (new app/ code) or any file in static/ changes, so
+    an open page can tell it is out of date and offer a reload."""
+    stamp = [STARTED] + [f"{p.name}:{p.stat().st_mtime_ns}:{p.stat().st_size}" for p in sorted(STATIC_DIR.glob("*")) if p.is_file()]
+    return {"version": hashlib.sha1("|".join(stamp).encode()).hexdigest()[:12]}
+
+
 @app.get("/api/jobs")
 def list_jobs() -> list[dict]:
     with jobs_lock:
-        return sorted((dict(j) for j in jobs.values()), key=lambda j: j["created_at"], reverse=True)
+        listed = sorted((dict(j) for j in jobs.values()), key=lambda j: j["created_at"], reverse=True)
+    for job in listed:
+        if job.get("status") == "done":
+            job["work"] = work_summary(job["id"])
+    return listed
 
 
 MIN_TRIMMED_SECONDS = 1.0
@@ -526,6 +544,14 @@ def repair_click(job_id: str, request: RepairRequest) -> dict:
     # that drifts) has nothing local to repair: start again from the analyzed beats,
     # which follow the drums, at the tempo the person is working in.
     rebuilt = None
+    # The tempo the person works in may be double or half the grid's (the tracker often
+    # counts a fast song at half speed): bring the grid there first, as ×2 / ÷2 would.
+    average = 60.0 * (len(beats) - 1) / (max(beats) - min(beats)) if len(beats) > 1 else 0
+    if request.bpm and average and not 0.8 <= request.bpm / average <= 1.25:
+        scaled = gridfix.scaled_grid(beats, downbeats, meter, request.bpm)
+        if scaled["factor"] != 1.0:
+            beats, downbeats = scaled["beats"], scaled["downbeats"]
+            rebuilt = {"factor": scaled["factor"], "drift": None}
     drift = gridfix.drift_share(beats, hits)
     if drift > gridfix.DRIFT_SHARE:
         analysis = read_analysis_file(job_id)
@@ -716,6 +742,7 @@ def set_tempo_lock(job_id: str, request: TempoLock) -> dict:
     return {
         "bpm": lock["bpm"] if lock else None,
         "range": lock.get("range") if lock else None,
+        "listen": project.listen_spots(edits),
         "position": None if song_position is None else round(project.to_timeline(edits, song_position), 3),
     }
 
@@ -890,12 +917,70 @@ def download_zip(job_id: str) -> FileResponse:
 
 @app.delete("/api/jobs/{job_id}", status_code=204)
 def delete_job(job_id: str) -> None:
+    """Move the song to the trash (kept KEEP_DAYS days, restorable from the home page)."""
     job = get_job(job_id)
     if job["status"] in ("queued", "running"):
         raise HTTPException(409, "ลบไม่ได้ระหว่างประมวลผล")
-    with jobs_lock:
+    with edit_lock, jobs_lock:
+        work = work_summary(job_id)
+        trash.move_in(TRASH_DIR, "job", job_id, job_dir(job_id), job.get("title") or job_id, {"work": work})
         jobs.pop(job_id, None)
-    shutil.rmtree(job_dir(job_id), ignore_errors=True)
+
+
+def work_summary(job_id: str) -> dict:
+    """The hand work a song holds, so a delete can say what would be lost."""
+    path = job_dir(job_id) / project.EDITS_FILE
+    try:
+        edits = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except (OSError, json.JSONDecodeError):
+        edits = {}
+    return {
+        "click": bool(edits.get("click")),
+        "lock": (edits.get("warp") or {}).get("bpm"),
+        "cues": len(edits.get("cues") or []),
+        "tracks": len(edits.get("tracks") or []),
+        "lead_in": (edits.get("lead_in") or {}).get("bars", 0),
+    }
+
+
+# ------------------------------------------------------------------ trash
+
+@app.get("/api/trash")
+def list_trash() -> list[dict]:
+    trash.purge(TRASH_DIR)
+    return trash.entries(TRASH_DIR)
+
+
+@app.post("/api/trash/{entry_id}/restore")
+def restore_trash(entry_id: str) -> dict:
+    try:
+        info = trash.info_of(TRASH_DIR, entry_id)
+        if info["kind"] == "job":
+            with jobs_lock:
+                trash.take_out(TRASH_DIR, entry_id, job_dir(info["id"]))
+                job = json.loads((job_dir(info["id"]) / "meta.json").read_text(encoding="utf-8"))
+                jobs[job["id"]] = job
+        elif info["kind"] == "import":
+            trash.take_out(TRASH_DIR, entry_id, _import_dir(info["id"]))
+        else:
+            trash.take_out(TRASH_DIR, entry_id, PLAYLIST_DIR / f"{info['id']}.json")
+    except trash.TrashError as error:
+        raise HTTPException(409, str(error))
+    return info
+
+
+@app.delete("/api/trash/{entry_id}", status_code=204)
+def delete_from_trash(entry_id: str) -> None:
+    try:
+        trash.remove(TRASH_DIR, entry_id)
+    except trash.TrashError as error:
+        raise HTTPException(404, str(error))
+
+
+@app.delete("/api/trash", status_code=204)
+def empty_trash() -> None:
+    for info in trash.entries(TRASH_DIR):
+        trash.remove(TRASH_DIR, info["entry"])
 
 
 # ------------------------------------------------------------------ setlists
@@ -965,12 +1050,14 @@ def delete_library_song(import_id: str) -> None:
     folder = _import_dir(import_id)
     if not folder.exists():
         raise HTTPException(404, "ไม่พบไฟล์")
-    shutil.rmtree(folder, ignore_errors=True)
+    meta = playlists.read_import(folder) or {}
+    trash.move_in(TRASH_DIR, "import", import_id, folder, meta.get("title") or import_id)
 
 
 class MixRequest(BaseModel):
     muted: list[str] = []
     pan: dict[str, str] = {}
+    gain: dict[str, float] = {}   # dB per track; missing means 0 dB
 
 
 @app.post("/api/jobs/{job_id}/playback")
@@ -987,6 +1074,9 @@ def render_playback(job_id: str, request: MixRequest) -> dict:
     if not sources:
         raise HTTPException(409, "ไม่พบไฟล์เสียงของเพลงนี้")
     mix = {"muted": sorted(set(request.muted) & set(sources)), "pan": {k: v for k, v in request.pan.items() if k in sources and v in ("L", "R")}}
+    gain = {k: v for k, v in playlists.clean_gain(request.gain).items() if k in sources}
+    if gain:  # left out at 0 dB everywhere, so mixes made before levels existed keep their cache
+        mix["gain"] = gain
     meta = playlists.render_mix(sources, mix, folder / "playback", _peaks)
     return {**meta, "url": f"/api/jobs/{job_id}/playback/{meta['key']}.wav"}
 
@@ -1037,9 +1127,11 @@ def save_playlist(playlist_id: str, body: dict = Body(...)) -> dict:
 @app.delete("/api/playlists/{playlist_id}", status_code=204)
 def delete_playlist(playlist_id: str) -> None:
     try:
-        playlists.delete_playlist(PLAYLIST_DIR, playlist_id)
+        current = playlists.read_playlist(PLAYLIST_DIR, playlist_id)
     except playlists.PlaylistError as error:
         raise HTTPException(404, str(error))
+    trash.move_in(TRASH_DIR, "playlist", playlist_id, PLAYLIST_DIR / f"{playlist_id}.json", current.get("name") or playlist_id,
+                  {"songs": len(current.get("items", []))})
 
 
 app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")

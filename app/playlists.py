@@ -28,6 +28,8 @@ MAX_PLAYLISTS = 200
 MAX_NAME = 120
 MAX_GAP = 60.0
 KEEP_RENDERS = 6  # cached project mixes kept per song
+MIN_GAIN_DB = -60.0
+MAX_GAIN_DB = 12.0
 
 _render_lock = threading.Lock()
 _store_lock = threading.Lock()
@@ -143,7 +145,24 @@ def _clean_mix(raw: object) -> dict:
     raw = raw if isinstance(raw, dict) else {}
     muted = sorted({str(t)[:40] for t in raw.get("muted", []) if isinstance(t, str)})[:64]
     pan = {str(k)[:40]: v for k, v in (raw.get("pan") or {}).items() if v in PANS and v != "C"} if isinstance(raw.get("pan"), dict) else {}
-    return {"muted": muted, "pan": dict(sorted(pan.items())[:64])}
+    mix = {"muted": muted, "pan": dict(sorted(pan.items())[:64])}
+    gain = clean_gain(raw.get("gain"))
+    if gain:
+        mix["gain"] = gain
+    return mix
+
+
+def clean_gain(raw: object) -> dict:
+    """Per-track level in dB ({stem: dB}); 0 dB is left out, so an untouched mix keeps
+    the same cache key it always had."""
+    if not isinstance(raw, dict):
+        return {}
+    gain = {}
+    for key, value in list(raw.items())[:64]:
+        db = _number(value, MIN_GAIN_DB, MAX_GAIN_DB, 0.0)
+        if isinstance(key, str) and db is not None and abs(db) >= 0.05:
+            gain[key[:40]] = round(db, 1)
+    return dict(sorted(gain.items()))
 
 
 def _number(value: object, low: float, high: float, fallback: float | None) -> float | None:
@@ -235,6 +254,9 @@ def render_mix(sources: dict[str, Path], mix: dict, out_dir: Path, peaks_fn) -> 
             if audio.shape[0] == 1:
                 audio = np.repeat(audio, 2, axis=0)
             length = min(audio.shape[1], total.shape[1])
+            db = mix.get("gain", {}).get(stem, 0.0)
+            if db:
+                audio *= np.float32(10 ** (db / 20))
             side = mix["pan"].get(stem, "C")
             if side == "C":
                 total[:, :length] += audio[:2, :length]

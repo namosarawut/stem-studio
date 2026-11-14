@@ -50,6 +50,7 @@ Improvement backlog and known gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
 | `app/bench_mcp.py` | Minimal stdio MCP server that serves those 5 tools to `claude -p` |
 | `app/gridfix.py` | Metronome repair from the drum stem ("ซ่อมจุดที่เพี้ยน"): rebuilds spots that slipped off the drums |
 | `app/warp.py` | Tempo lock: beat time map, kink filtering, WSOLA stretch with one shared plan for all tracks |
+| `app/trash.py` | Deletes go to `data/trash/<entry>/` (item + trash.json) for 7 days; restore, purge on startup and on listing |
 | `app/monitor.py` | Per-job resource report (CPU, RAM, GPU via `ioreg`, disk) |
 | `app/playlists.py` | Setlists, imported files (`data/library`), server-rendered project mixes for playback |
 | `static/app.js` | Router, home, processing view, studio (Mixer class, timeline canvas, metronome editor, cues, cuts, lead-in, routing, export) |
@@ -62,9 +63,11 @@ Improvement backlog and known gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
   `analysis.json`, `edits.json`, `edited/` (cut results), `warped/` (tempo-locked tracks), `padded/` (stems with lead-in silence),
   `cues_render.json`, `tempo.mid` (rebuilt on each download), `playback/<key>.wav|json` (setlist mixes, newest 6 kept), `stems.zip` (cache,
   deleted whenever edits change export content).
+- `data/trash/<kind>-<id>-<rand>/`: a deleted song, import or setlist (`item`) plus `trash.json`; purged after 7 days.
 - `data/library/<id>/`: imported file as `audio.wav` + `meta.json` (with peaks).
 - `data/playlists/<id>.json`: `{name, auto_advance, gap, items: [{id, kind: file|project, ref, title,
-  start, end|null, stop_after, fade_in, fade_out, mix?: {muted: [...], pan: {stem: L|R}}}]}`.
+  start, end|null, stop_after, fade_in, fade_out, mix?: {muted: [...], pan: {stem: L|R}, gain?: {stem: dB}}}]}`
+  (gain -60..+12 dB, 0 dB left out so old mixes keep their render cache).
 
 ## Invariants and gotchas
 
@@ -86,6 +89,10 @@ Improvement backlog and known gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
   after the song. Duplicate labels get the stem id appended.
 - **Storage keys / env vars keep the old name** after the rename to Prism: `stem-studio:pan:<job>`,
   `stem-studio-cue-voice`, `STEM_STUDIO_DATA`, `STEM_STUDIO_PORT`. Renaming them loses user settings.
+- **Deletes are soft.** `DELETE` on a song, import or setlist moves it to the trash; only the trash endpoints
+  delete for good. Never `rmtree` user data directly.
+- **Out-of-date pages:** `/api/version` changes on restart or any `static/` change; the page polls it and
+  shows a reload bar.
 - Front end is vanilla JS, no build step: `el()` and `api()` helpers, hash router in `route()`, view
   names in `show()`, per-view listeners on an `AbortController` cleaned up via `leaveView`.
 

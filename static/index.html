@@ -47,7 +47,43 @@
       <ul id="library"></ul>
       <p class="lib-empty" id="library-empty" hidden></p>
     </section>
+
+    <section class="library trash-section" id="trash-section" hidden>
+      <details id="trash-details">
+        <summary class="lib-head">
+          <h2>ถังขยะ <span class="lib-count" id="trash-count"></span></h2>
+          <span class="trash-hint">ของที่ลบจะอยู่ที่นี่ 7 วัน กู้คืนได้ จากนั้นจะถูกลบจริง</span>
+        </summary>
+        <ul id="trash-list"></ul>
+        <div class="trash-foot"><button class="lib-delete" id="trash-empty">ล้างถังขยะทั้งหมด</button></div>
+      </details>
+    </section>
   </main>
+
+  <dialog class="pl-dialog claude-dialog" id="steady-dialog" aria-label="ทำคลิกให้นิ่ง">
+    <div class="pl-dialog-head">
+      <strong class="trim-title">ทำคลิกให้นิ่ง</strong>
+      <button class="icon-btn small" id="steady-close" aria-label="ปิด">×</button>
+    </div>
+    <div class="trim-body">
+      <div id="steady-choose">
+        <p class="trim-hint">เลือกความเร็วที่วงนับจริง ระบบจะซ่อมเมโทรนอมให้ตรงกับกลอง แล้วยืดหรือหดเสียงทุกแทร็กให้ทุกบีตยาวเท่ากันที่ความเร็วนี้ ปลดล็อกได้ตลอด เสียงเดิมไม่หาย</p>
+        <div class="trim-row" id="steady-options"></div>
+        <label class="pl-field">หรือใส่เอง <input class="edit-input lock-bpm" id="steady-bpm" type="number" min="30" max="300" step="0.1"> BPM</label>
+        <p class="trim-hint" id="steady-note"></p>
+      </div>
+      <p class="trim-hint" id="steady-working" hidden></p>
+      <div id="steady-result" hidden>
+        <p class="claude-explanation" id="steady-summary"></p>
+        <div class="steady-listen" id="steady-listen"></div>
+      </div>
+    </div>
+    <div class="trim-foot">
+      <button class="btn" id="steady-claude" hidden>ให้ Claude ช่วยดู</button>
+      <button class="btn" id="steady-cancel">ยกเลิก</button>
+      <button class="btn btn-primary" id="steady-go">เริ่ม</button>
+    </div>
+  </dialog>
 
   <dialog class="pl-dialog claude-dialog" id="claude-dialog" aria-label="ให้ Claude ช่วยแก้เมโทรนอม">
     <div class="pl-dialog-head">
@@ -203,6 +239,7 @@
               <option value="8">8 ห้อง</option>
             </select>
           </label>
+          <button class="chip chip-strong" id="btn-steady" hidden title="ซ่อมเมโทรนอมให้ตรงกลอง แล้วยืดเสียงให้ทุกบีตยาวเท่ากัน ในขั้นตอนเดียว">ทำคลิกให้นิ่ง</button>
           <span class="edit-field lock-field" id="lock-field" hidden>ล็อกความเร็ว
             <input class="edit-input lock-bpm" id="lock-bpm" type="number" min="30" max="300" step="0.1" aria-label="BPM ที่จะล็อก">
             <button class="chip" id="btn-lock" aria-pressed="false">ล็อก</button>
@@ -394,19 +431,24 @@
   </div>
 
   <div class="toast" id="toast" role="alert" hidden></div>
+  <div class="update-bar" id="update-bar" role="status" hidden>
+    <span>Prism มีการอัปเดต โหลดหน้าใหม่เพื่อใช้เวอร์ชันล่าสุด</span>
+    <button class="btn btn-primary" id="update-reload">โหลดใหม่</button>
+    <button class="icon-btn small" id="update-dismiss" aria-label="ไว้ทีหลัง">×</button>
+  </div>
 
   <dialog class="pl-dialog" id="add-pl" aria-label="เพิ่มลงเพลย์ลิสต์">
     <div class="pl-dialog-head">
       <strong class="add-pl-title">เพิ่มลงเพลย์ลิสต์</strong>
       <button class="icon-btn small" id="add-pl-close" aria-label="ปิด">×</button>
     </div>
-    <label class="pl-check add-pl-mix"><input type="checkbox" id="add-pl-use-mix" checked> ใช้มิกซ์ตอนนี้: แทร็กที่ปิดหรือโซโล่ และลำโพงซ้าย-ขวา</label>
+    <label class="pl-check add-pl-mix"><input type="checkbox" id="add-pl-use-mix" checked> ใช้มิกซ์ตอนนี้: แทร็กที่ปิดหรือโซโล่ ความดังของแต่ละแทร็ก และลำโพงซ้าย-ขวา</label>
     <ul class="pl-picker-list" id="add-pl-list"></ul>
     <div class="add-pl-new">
       <input class="edit-input lib-search" id="add-pl-name" placeholder="ชื่อเพลย์ลิสต์ใหม่" aria-label="ชื่อเพลย์ลิสต์ใหม่" maxlength="120">
       <button class="btn" id="add-pl-create">สร้างแล้วเพิ่ม</button>
     </div>
-    <p class="pl-picker-note" id="add-pl-note">ระดับเสียงของแต่ละแทร็กไม่ถูกนำไปด้วย ในเพลย์ลิสต์แต่ละแทร็กเปิดหรือปิดได้อย่างเดียว</p>
+    <p class="pl-picker-note" id="add-pl-note">ปรับความดังแต่ละแทร็กต่อได้ในหน้าเพลย์ลิสต์ ค่าจะบันทึกไว้กับเพลงในเพลย์ลิสต์นั้น</p>
   </dialog>
 
   <!-- Setlists -->

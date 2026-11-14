@@ -98,6 +98,10 @@ function plMissing(item) {
 }
 
 /** Mix a project starts with: what the studio last had for left/right, click off like there. */
+const PL_GAIN_MIN = -30;
+const PL_GAIN_MAX = 6;
+const plDb = (db) => (Math.abs(db) < 0.05 ? "0 dB" : `${db > 0 ? "+" : "−"}${Math.abs(db).toFixed(1)} dB`);
+
 function plDefaultMix(jobId) {
   let pan = {};
   try { pan = JSON.parse(localStorage.getItem(`stem-studio:pan:${jobId}`) || "{}"); } catch { /* none saved */ }
@@ -535,6 +539,7 @@ async function plDelete() {
     if (pl.playing === list) { plPlayer.halt(); pl.playing = null; plPlayer.cue = null; }
     pl.lists = pl.lists.filter((p) => p.id !== list.id);
     pl.shown = null;
+    toast(`ย้ายเพลย์ลิสต์ “${list.name}” ไปถังขยะแล้ว กู้คืนได้ภายใน 7 วันจากหน้าแรก`);
     location.hash = pl.lists[0] ? `#/playlists/${pl.lists[0].id}` : "#/playlists";
   } catch (error) {
     toast(error.message);
@@ -900,16 +905,42 @@ function plMixEditor(item) {
         paint();
         changed();
       });
+      // Level in dB, saved with the song in this setlist. The server renders the mix, so a
+      // new value takes effect when the slider is let go, not while it moves.
+      const level = el("input", {
+        type: "range", class: "pl-level", min: String(PL_GAIN_MIN), max: String(PL_GAIN_MAX), step: "0.5",
+        "aria-label": `ความดัง ${stem.name}`, title: "ลากเพื่อปรับความดัง ดับเบิลคลิกเพื่อกลับเป็น 0 dB",
+      });
+      const readout = el("span", { class: "pl-level-value" });
+      const setGain = (db) => {
+        item.mix.gain = { ...(item.mix.gain ?? {}) };
+        if (Math.abs(db) < 0.05) delete item.mix.gain[stem.id]; else item.mix.gain[stem.id] = db;
+        if (!Object.keys(item.mix.gain).length) delete item.mix.gain;
+        paint();
+        changed();
+      };
+      level.addEventListener("input", () => { readout.textContent = plDb(Number(level.value)); });
+      level.addEventListener("change", () => setGain(Number(level.value)));
+      level.addEventListener("dblclick", () => setGain(0));
       rows.push(() => {
         on.checked = !item.mix.muted.includes(stem.id);
         const pan = item.mix.pan[stem.id] ?? "C";
         pans.forEach((b, i) => b.setAttribute("aria-pressed", String(PAN_ORDER[i] === pan)));
+        const db = item.mix.gain?.[stem.id] ?? 0;
+        level.value = String(db);
+        readout.textContent = plDb(db);
+        level.disabled = !on.checked;
       });
-      return el("div", { class: `pl-mix-row${stem.guide ? " guide" : ""}` }, el("label", { class: "pl-check" }, on, stem.name), el("span", { class: "pan" }, ...pans));
+      return el("div", { class: `pl-mix-row${stem.guide ? " guide" : ""}` },
+        el("label", { class: "pl-check" }, on, stem.name),
+        el("span", { class: "pl-level-box" }, level, readout),
+        el("span", { class: "pan" }, ...pans));
     }));
     paint();
     const guides = stems.filter((s) => s.guide).map((s) => s.id);
     const others = stems.filter((s) => !s.guide).map((s) => s.id);
+    const keys = ["piano", "other"].filter((id) => others.includes(id));
+    const keysLabel = keys.length === 2 ? "เฉพาะเปียโน + ดนตรีอื่นๆ" : keys[0] === "piano" ? "เฉพาะเปียโน" : "เฉพาะดนตรีอื่นๆ";
     const preset = (label, apply) => {
       const button = el("button", { class: "chip" }, label);
       button.addEventListener("click", () => { apply(); paint(); changed(); });
@@ -918,6 +949,13 @@ function plMixEditor(item) {
     quick.replaceChildren(
       preset("เปิดทุกแทร็ก", () => { item.mix.muted = []; }),
       preset("ปิดเสียงร้อง", () => { item.mix.muted = [...new Set([...item.mix.muted, ...stems.filter((s) => /vocal/.test(s.id)).map((s) => s.id)])].sort(); }),
+      keys.length ? preset(keysLabel, () => {
+        // Music: only piano and other. Click and cues stay as they are, they are for the player.
+        const music = stems.filter((s) => !s.guide).map((s) => s.id);
+        const kept = item.mix.muted.filter((id) => !music.includes(id));
+        item.mix.muted = [...new Set([...kept, ...music.filter((id) => !keys.includes(id))])].sort();
+      }) : null,
+      preset("ความดังเท่าเดิมทุกแทร็ก", () => { delete item.mix.gain; }),
       guides.length ? preset("คิว+เมโทรนอม ซ้าย · ดนตรี ขวา", () => { item.mix.pan = Object.fromEntries([...guides.map((id) => [id, "L"]), ...others.map((id) => [id, "R"])]); }) : null,
       guides.length ? preset("คิว+เมโทรนอม ขวา · ดนตรี ซ้าย", () => { item.mix.pan = Object.fromEntries([...guides.map((id) => [id, "R"]), ...others.map((id) => [id, "L"])]); }) : null,
       preset("ทุกแทร็กตรงกลาง", () => { item.mix.pan = {}; }),
@@ -1177,7 +1215,7 @@ function plRenderPicker() {
 }
 
 function plImportDeleteButton(entry) {
-  const button = el("button", { class: "lib-delete", title: "ลบไฟล์นี้ออกจากเครื่อง (เพลย์ลิสต์ที่ใช้อยู่จะขึ้นว่าไม่พบต้นฉบับ)" }, "ลบไฟล์");
+  const button = el("button", { class: "lib-delete", title: "ย้ายไฟล์นี้ไปถังขยะ กู้คืนได้ภายใน 7 วันจากหน้าแรก (ระหว่างนั้นเพลย์ลิสต์ที่ใช้อยู่จะขึ้นว่าไม่พบต้นฉบับ)" }, "ลบไฟล์");
   let armed = false;
   button.addEventListener("click", async () => {
     if (!armed) {

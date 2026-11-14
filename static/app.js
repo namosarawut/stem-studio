@@ -175,9 +175,29 @@ $("library-search").addEventListener("keydown", (event) => {
   if (event.key === "Escape" && event.target.value) { event.target.value = ""; renderLibrary(); }
 });
 
+/** The hand work a song holds, in words, for the delete warning. */
+function workText(work) {
+  if (!work) return "";
+  const parts = [];
+  if (work.click) parts.push("เมโทรนอมที่แก้เอง");
+  if (work.lock) parts.push(`ล็อกความเร็ว ${work.lock} BPM`);
+  if (work.cues) parts.push(`cue ${work.cues} จุด`);
+  if (work.tracks) parts.push(`แทร็กที่ตัดไว้ ${work.tracks} แทร็ก`);
+  if (work.lead_in) parts.push(`ช่วงนับ ${work.lead_in} ห้อง`);
+  return parts.join(", ");
+}
+
 function deleteButton(job) {
   let armed = false;
   let timer;
+  let warning = null;
+  const disarm = () => {
+    armed = false;
+    button.textContent = "ลบ";
+    button.classList.remove("confirm");
+    warning?.remove();
+    warning = null;
+  };
   const button = el("button", {
     class: "lib-delete", "aria-label": `ลบ ${job.title}`,
     onclick: async () => {
@@ -185,21 +205,84 @@ function deleteButton(job) {
         armed = true;
         button.textContent = "ยืนยันลบ";
         button.classList.add("confirm");
-        timer = setTimeout(() => {
-          armed = false;
-          button.textContent = "ลบ";
-          button.classList.remove("confirm");
-        }, 3000);
+        const work = workText(job.work);
+        warning = el("span", { class: "lib-warn" }, `${work ? `เพลงนี้มี${work} · ` : ""}ลบแล้วไปอยู่ในถังขยะ กู้คืนได้ภายใน 7 วัน`);
+        button.parentElement?.querySelector(".lib-open")?.append(warning);
+        timer = setTimeout(disarm, work ? 6000 : 4000);
         return;
       }
       clearTimeout(timer);
       try {
         await api(`/api/jobs/${job.id}`, { method: "DELETE" });
+        toast(`ย้าย “${job.title}” ไปถังขยะแล้ว กู้คืนได้ภายใน 7 วัน (ด้านล่างของหน้านี้)`);
         renderLibrary(await api("/api/jobs"));
-      } catch (error) { toast(error.message); }
+        renderTrash();
+      } catch (error) { toast(error.message); disarm(); }
     },
   }, "ลบ");
   return button;
+}
+
+// ------------------------------------------------------------------ trash
+
+const TRASH_KIND = { job: "เพลง", import: "ไฟล์นำเข้า", playlist: "เพลย์ลิสต์" };
+
+function ago(seconds) {
+  if (seconds < 3600) return `${Math.max(1, Math.round(seconds / 60))} นาทีที่แล้ว`;
+  if (seconds < 86400) return `${Math.round(seconds / 3600)} ชั่วโมงที่แล้ว`;
+  return `${Math.round(seconds / 86400)} วันที่แล้ว`;
+}
+
+function confirmButton(label, className, action) {
+  let armed = false;
+  let timer;
+  const button = el("button", { class: className }, label);
+  button.addEventListener("click", async () => {
+    if (!armed) {
+      armed = true;
+      button.textContent = "ยืนยัน";
+      button.classList.add("confirm");
+      timer = setTimeout(() => { armed = false; button.textContent = label; button.classList.remove("confirm"); }, 4000);
+      return;
+    }
+    clearTimeout(timer);
+    await action();
+  });
+  return button;
+}
+
+async function renderTrash() {
+  let items = [];
+  try { items = await api("/api/trash"); } catch { return; }
+  $("trash-section").hidden = items.length === 0;
+  $("trash-count").textContent = items.length ? `${items.length} รายการ` : "";
+  const now = Date.now() / 1000;
+  $("trash-list").replaceChildren(...items.map((item) => {
+    const left = Math.max(0, Math.ceil((item.expires_at - now) / 86400));
+    const work = item.kind === "job" ? workText(item.work) : item.kind === "playlist" ? `${item.songs ?? 0} เพลง` : "";
+    const meta = [TRASH_KIND[item.kind] ?? item.kind, `ลบเมื่อ ${ago(now - item.deleted_at)}`, `ลบจริงในอีก ${left} วัน`, item.size_mb >= 1 ? `${item.size_mb} MB` : null, work || null].filter(Boolean).join(" · ");
+    const restore = el("button", { class: "lib-restore" }, "กู้คืน");
+    restore.addEventListener("click", async () => {
+      try {
+        await api(`/api/trash/${item.entry}/restore`, { method: "POST" });
+        toast(`กู้คืน “${item.title}” แล้ว`);
+        renderTrash();
+        if (!$("view-home").hidden) renderLibrary(await api("/api/jobs"));
+      } catch (error) { toast(error.message); }
+    });
+    const forever = confirmButton("ลบถาวร", "lib-delete", async () => {
+      try { await api(`/api/trash/${item.entry}`, { method: "DELETE" }); renderTrash(); } catch (error) { toast(error.message); }
+    });
+    return el("li", { class: "lib-item" },
+      el("span", { class: "lib-open" }, el("span", { class: "lib-title" }, item.title), el("span", { class: "lib-meta" }, meta)),
+      restore, forever);
+  }));
+}
+
+function setupTrash() {
+  $("trash-empty").replaceWith(confirmButton("ล้างถังขยะทั้งหมด", "lib-delete", async () => {
+    try { await api("/api/trash", { method: "DELETE" }); toast("ล้างถังขยะแล้ว"); renderTrash(); } catch (error) { toast(error.message); }
+  }));
 }
 
 async function showHome() {
@@ -216,6 +299,7 @@ async function showHome() {
     } catch (error) { toast(error.message); }
   };
   leaveView = () => { active = false; clearTimeout(timer); };
+  renderTrash();
   await refresh();
 }
 
@@ -1819,10 +1903,32 @@ async function showStudio(job, keep = null) {
     afterGridChange();
   }
 
+  // A song recorded without a click drifts; one BPM for all of it makes the click slide off
+  // the band. Ask once before doing that, and point to the tempo lock, which does what is
+  // usually wanted (a steady click that still matches the music).
+  let constantArmed = 0;
+  function driftPercent() {
+    const times = beats.map((b) => b.t);
+    if (times.length < 40) return 0;
+    const rates = [];
+    for (let i = 0; i + 16 < times.length; i += 8) rates.push(16 / (times[i + 16] - times[i]));
+    rates.sort((a, b) => a - b);
+    const low = rates[Math.floor(rates.length * 0.05)];
+    const high = rates[Math.ceil(rates.length * 0.95) - 1];
+    return ((high - low) / rates[Math.floor(rates.length / 2)]) * 100;
+  }
+
   function lockBpm() {
     const bpm = Number($("metro-bpm").value);
     if (!Number.isFinite(bpm) || bpm < 30 || bpm > 300) return toast("BPM ต้องอยู่ระหว่าง 30 ถึง 300");
     if (tempoRange) return setRangeBpm(bpm);
+    const drift = driftPercent();
+    if (drift > 3 && Date.now() - constantArmed > 6000) {
+      constantArmed = Date.now();
+      toast(`เพลงนี้ช้าเร็วไม่เท่ากันราว ${drift.toFixed(0)}% ถ้าตั้งเป็นจังหวะคงที่ คลิกจะค่อยๆ เหลื่อมกับเพลง ถ้าอยากได้คลิกนิ่งที่ยังตรงกับเพลง ใช้ "ทำคลิกให้นิ่ง" แทน · กดปุ่มนี้อีกครั้งเพื่อตั้งคงที่ต่อ`);
+      return;
+    }
+    constantArmed = 0;
     const period = 60 / bpm;
     const anchor = selectedBeat !== null ? beats[selectedBeat] : beats[firstBarIndex()];
     pushUndo();
@@ -2648,6 +2754,137 @@ async function showStudio(job, keep = null) {
     }
   }, on);
 
+  // ---- steady click in one step: choose the tempo, repair the metronome, lock
+  const steady = { bpm: null, report: null };
+  const fmtBpm = (bpm) => (Math.abs(bpm - Math.round(bpm)) < 0.05 ? String(Math.round(bpm)) : bpm.toFixed(1));
+  $("btn-steady").hidden = !mixer.tracks.has(CLICK) || !mixer.tracks.has("drums") || !suggestedBpm;
+  $("btn-steady").textContent = lock ? `จุดที่ควรฟัง (${lock.listen?.length ?? 0})` : "ทำคลิกให้นิ่ง";
+  $("btn-steady").title = lock ? "จุดที่การล็อกยืดเสียงเยอะ หรือห้องที่จังหวะไม่ครบ ควรฟังให้แน่ใจ" : $("btn-steady").title;
+
+  function steadyShow(mode) {
+    $("steady-choose").hidden = mode !== "choose";
+    $("steady-working").hidden = mode !== "working";
+    $("steady-result").hidden = mode !== "result" && mode !== "failed";
+    $("steady-go").hidden = mode !== "choose";
+    $("steady-claude").hidden = mode !== "failed";
+    $("steady-cancel").textContent = mode === "choose" ? "ยกเลิก" : "ปิด";
+    $("steady-close").disabled = mode === "working";
+    $("steady-cancel").disabled = mode === "working";
+    if (!$("steady-dialog").open) $("steady-dialog").showModal();
+  }
+
+  function steadyPick(bpm) {
+    steady.bpm = bpm;
+    $("steady-bpm").value = fmtBpm(bpm);
+    for (const button of $("steady-options").children) button.setAttribute("aria-pressed", String(Number(button.dataset.bpm) === bpm));
+  }
+
+  function steadyChoose() {
+    // The tracker often counts a fast song at half speed, so offer the double (or half) too.
+    const base = suggestedBpm;
+    const other = base < 110 ? base * 2 : base / 2;
+    const options = [base, other].sort((a, b) => a - b).map((bpm) => Math.round(bpm));
+    $("steady-options").replaceChildren(...options.map((bpm) => {
+      const button = el("button", { class: "chip", "data-bpm": String(bpm) }, `${bpm} BPM`);
+      button.addEventListener("click", () => steadyPick(bpm));
+      return button;
+    }));
+    const usual = options.filter((bpm) => bpm >= 90 && bpm <= 180);
+    steadyPick(usual.length === 1 ? usual[0] : Math.round(base));
+    $("steady-note").textContent = other > base
+      ? `เมโทรนอมตอนนี้เฉลี่ย ${base.toFixed(1)} BPM ถ้าเวลานับในวงรู้สึกเร็วกว่านี้สองเท่า (เพลงเร็วที่ระบบนับเป็นครึ่งจังหวะ) ให้เลือกตัวเลขที่สูงกว่า`
+      : `เมโทรนอมตอนนี้เฉลี่ย ${base.toFixed(1)} BPM ถ้าเวลานับในวงรู้สึกช้ากว่านี้ครึ่งหนึ่ง ให้เลือกตัวเลขที่ต่ำกว่า`;
+    steadyShow("choose");
+  }
+
+  function steadyResult(report, failed = null) {
+    steady.report = report;
+    const lines = [];
+    if (failed) {
+      lines.push(failed);
+    } else {
+      lines.push(`ล็อกที่ ${fmtBpm(report.bpm)} BPM แล้ว ทุกบีตยาวเท่ากัน`);
+      if (report.rebuilt?.drift == null && report.rebuilt) lines.push(`ปรับเมโทรนอมเป็น ${report.rebuilt.factor === 2 ? "×2" : "÷2"} ให้ตรงกับความเร็วที่เลือกก่อนซ่อม`);
+      else if (report.rebuilt) lines.push("เมโทรนอมเดิมไม่ตรงกับกลอง ระบบเลยสร้างใหม่จากเมโทรนอมอัตโนมัติก่อนซ่อม");
+      if (report.fixed?.length) lines.push(`ซ่อมเมโทรนอม ${report.fixed.length} จุด`);
+      if (report.range) lines.push(`เสียงถูกยืดหรือหดตั้งแต่ ${report.range.slowest}% ถึง +${report.range.fastest}%`);
+      lines.push(report.listen?.length ? "ควรฟังตรงนี้ (กดเพื่อไปฟัง):" : "ไม่มีจุดที่ยืดเสียงเยอะ ฟังทั้งเพลงสักรอบก็พอ");
+    }
+    $("steady-summary").textContent = lines.join("\n");
+    $("steady-listen").replaceChildren(...(failed ? [] : report.listen ?? []).map((spot) => {
+      const button = el("button", { class: "btn" }, el("strong", {}, fmtTime(spot.time)), spot.why);
+      button.addEventListener("click", () => {
+        $("steady-dialog").close();
+        seekTo(Math.max(0, spot.time - 2));
+      });
+      return button;
+    }));
+    steadyShow(failed ? "failed" : "result");
+  }
+
+  async function steadyRun() {
+    const bpm = Number($("steady-bpm").value);
+    if (!(bpm >= 30 && bpm <= 300)) return toast("ใส่ความเร็วระหว่าง 30 ถึง 300 BPM");
+    steadyShow("working");
+    $("steady-working").textContent = "กำลังเทียบเมโทรนอมกับกลองและซ่อมจุดที่เพี้ยน…";
+    let repaired = null;
+    let before = null;  // the grid as it was, put back if the lock does not go through
+    try {
+      await flushGrid();
+      repaired = await api(`/api/jobs/${job.id}/click/repair`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ beats: beats.map((b) => b.t), downbeats: beats.filter((b) => b.down).map((b) => b.t), meter, bpm }),
+      });
+      if (!alive) return;
+      if (repaired.fixed.length || repaired.rebuilt) {
+        before = { beats: beats.map((b) => ({ ...b })), meter };
+        pushUndo();  // "ย้อนกลับ" in the metronome editor brings the old grid back
+        const downs = new Set(repaired.downbeats.map(round3));
+        beats = repaired.beats.map((t) => ({ t: round3(t), down: downs.has(round3(t)) }));
+        meter = repaired.meter;
+        selectedBeat = null;
+        afterGridChange();
+        await flushGrid();
+      }
+      $("steady-working").textContent = `กำลังยืดเสียงทุกแทร็กให้นิ่งที่ ${fmtBpm(bpm)} BPM… (เพลงยาว 5 นาทีใช้ราว 10 วินาที)`;
+      const locked = await api(`/api/jobs/${job.id}/tempo-lock`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bpm, position: mixer.position() }),
+      });
+      if (!alive) return;
+      $("steady-dialog").close();
+      const report = { ...locked, rebuilt: repaired.rebuilt, fixed: repaired.fixed };
+      await reopen([...mixer.tracks.keys()], (state) => {
+        if (locked.position !== null) state.position = Math.max(0, locked.position);
+        state.editMode = false;
+        state.steadyReport = report;
+      });
+    } catch (error) {
+      if (!alive) return;
+      if (before) {
+        beats = before.beats;
+        meter = before.meter;
+        selectedBeat = null;
+        afterGridChange();
+        await flushGrid().catch(() => {});
+      }
+      steadyResult(null, `ยังทำคลิกให้นิ่งไม่ได้: ${error.message}\nเมโทรนอมกลับเป็นเหมือนก่อนกดแล้ว ลองเลือกความเร็วอื่น ให้ Claude ช่วยดู หรือเปิดแก้เมโทรนอมตรงจุดที่บอกเอง`);
+    }
+  }
+
+  $("btn-steady").addEventListener("click", () => {
+    if (lock) steadyResult({ bpm: lock.bpm, range: lock.range, listen: lock.listen ?? [] });
+    else steadyChoose();
+  }, on);
+  $("steady-bpm").addEventListener("input", () => {
+    steady.bpm = Number($("steady-bpm").value);
+    for (const button of $("steady-options").children) button.setAttribute("aria-pressed", String(Number(button.dataset.bpm) === steady.bpm));
+  }, on);
+  $("steady-go").addEventListener("click", steadyRun, on);
+  $("steady-cancel").addEventListener("click", () => $("steady-dialog").close(), on);
+  $("steady-close").addEventListener("click", () => $("steady-dialog").close(), on);
+  $("steady-claude").addEventListener("click", () => { $("steady-dialog").close(); claudeOpen(); }, on);
+  if (keep?.steadyReport) steadyResult(keep.steadyReport);
+
   // ---- cutting a region out into its own track
   function renderSelectionBar() {
     $("sel-bar").hidden = !selection;
@@ -2881,6 +3118,10 @@ async function showStudio(job, keep = null) {
       // Silent here (muted, or left out by a solo) means off in the setlist mix.
       muted: [...mixer.tracks.values()].filter((t) => mixer.effectiveGain(t) === 0).map((t) => t.id).sort(),
       pan: Object.fromEntries([...mixer.tracks.values()].filter((t) => t.pan !== "C").map((t) => [t.id, t.pan])),
+      // Fader levels in dB (80 on the fader is 0 dB); left out where it is at 0 dB.
+      gain: Object.fromEntries([...mixer.tracks.values()]
+        .map((t) => [t.id, Math.round(20 * Math.log10(Math.max(faderToGain(t.slider), 0.001)) * 10) / 10])
+        .filter(([, db]) => Math.abs(db) >= 0.05)),
     }));
   }, on);
 
@@ -3157,8 +3398,31 @@ function renderStemTable(stems) {
 
 // ------------------------------------------------------------------ boot
 
+// ------------------------------------------------------------------ out-of-date page
+
+/** The page keeps the code it loaded. When the server restarts with new code or a file in
+ * static/ changes, offer a reload instead of leaving old buttons and old text on screen. */
+function watchVersion() {
+  let loaded = null;
+  let dismissed = null;
+  const check = async () => {
+    try {
+      const { version } = await api("/api/version");
+      if (loaded === null) loaded = version;
+      else if (version !== loaded && version !== dismissed) $("update-bar").hidden = false;
+      $("update-dismiss").onclick = () => { dismissed = version; $("update-bar").hidden = true; };
+    } catch { /* server stopped for a moment: check again later */ }
+  };
+  $("update-reload").addEventListener("click", () => location.reload());
+  check();
+  setInterval(check, 20000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) check(); });
+}
+
 async function boot() {
   setupUpload();
+  setupTrash();
+  watchVersion();
   // A button, not a link: this app's routing owns the URL hash.
   $("resource-strip").addEventListener("click", () => $("resources").scrollIntoView());
   window.addEventListener("hashchange", route);
