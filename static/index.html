@@ -60,6 +60,33 @@
     </section>
   </main>
 
+  <dialog class="pl-dialog claude-dialog" id="add-sound-dialog" aria-label="เพิ่มเสียงจากไฟล์">
+    <div class="pl-dialog-head">
+      <strong class="trim-title">เพิ่มเสียงจากไฟล์เป็นแทร็กใหม่</strong>
+      <button class="icon-btn small" id="add-sound-close" aria-label="ปิด">×</button>
+    </div>
+    <div class="trim-body">
+      <p class="trim-hint">เช่น sample, เสียงเอฟเฟกต์, intro ที่ทำไว้ หรือท่อนที่อัดเพิ่ม เสียงจะเล่นตามความเร็วเดิมของไฟล์ ไม่ถูกแยกหรือยืด แทร็กใหม่ส่งออกไปพร้อม stem อื่นและใช้ในเพลย์ลิสต์ได้</p>
+      <div class="trim-row">
+        <button class="btn" id="add-sound-pick">เลือกไฟล์</button>
+        <span class="trim-length" id="add-sound-file-name">ยังไม่ได้เลือกไฟล์</span>
+        <input type="file" id="add-sound-input" hidden accept="audio/*,video/mp4,video/quicktime,video/webm,.mp3,.wav,.flac,.m4a,.aac,.ogg,.opus,.aiff,.aif,.wma">
+      </div>
+      <label class="pl-field">ชื่อแทร็ก <input class="edit-input" id="add-sound-name" maxlength="40" placeholder="เช่น Synth intro"></label>
+      <div class="add-sound-at">
+        <span class="edit-label">เริ่มเล่นที่</span>
+        <label class="pl-check"><input type="radio" name="add-sound-at" value="here" checked> ตำแหน่งที่เล่นอยู่ (<span id="add-sound-here-time">0:00</span>)</label>
+        <label class="pl-check"><input type="radio" name="add-sound-at" value="zero"> ต้นไทม์ไลน์ (0:00)</label>
+        <label class="pl-check"><input type="radio" name="add-sound-at" value="time" id="add-sound-at-time"> เวลา <input class="edit-input pl-time-input" id="add-sound-time" aria-label="เวลาเริ่ม"></label>
+      </div>
+      <p class="trim-hint" id="add-sound-progress"></p>
+    </div>
+    <div class="trim-foot">
+      <button class="btn" id="add-sound-cancel">ยกเลิก</button>
+      <button class="btn btn-primary" id="add-sound-go" disabled>เพิ่มเป็นแทร็กใหม่</button>
+    </div>
+  </dialog>
+
   <dialog class="pl-dialog claude-dialog" id="steady-dialog" aria-label="ทำคลิกให้นิ่ง">
     <div class="pl-dialog-head">
       <strong class="trim-title">ทำคลิกให้นิ่ง</strong>
@@ -248,6 +275,7 @@
           <button class="chip" id="btn-edit-click" aria-pressed="false" hidden>แก้เมโทรนอม</button>
           <button class="chip" id="btn-undo-cut" hidden>ย้อนการตัดล่าสุด</button>
           <span class="tool-sep" aria-hidden="true"></span>
+          <button class="chip" id="btn-add-sound" hidden title="นำเสียงจากไฟล์ (sample, เสียงเอฟเฟกต์, ท่อนที่อัดเพิ่ม) เข้ามาเป็นแทร็กใหม่ หรือลากไฟล์มาวางบนหน้านี้ก็ได้">+ เพิ่มเสียงจากไฟล์</button>
           <button class="chip" id="btn-add-cue" hidden>+ เพิ่ม cue</button>
           <button class="chip" id="btn-auto-cue" hidden>ใส่ cue อัตโนมัติจากท่อนเพลง</button>
           <button class="chip" id="btn-undo-cue" hidden>ย้อน cue</button>
@@ -476,6 +504,7 @@
           <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="1.5"/></svg>
         </button>
         <span class="clock"><span id="pl-time">0:00</span> <span class="clock-sep">/</span> <span id="pl-total">0:00</span></span>
+        <button class="btn" id="pl-show" title="เต็มจอ ตัวหนังสือใหญ่ คุมด้วยแป้นเหยียบหรือ MIDI ล็อกจอได้ สำหรับเล่นบนเวที">โหมดโชว์</button>
       </div>
       <div class="pl-progress" id="pl-progress" role="slider" aria-label="ตำแหน่งในเพลง" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0"><i id="pl-progress-fill"></i></div>
     </header>
@@ -522,6 +551,7 @@
         <div class="cue-tabs" role="tablist">
           <button class="chip" id="pl-tab-projects" role="tab" aria-pressed="true">โปรเจกต์</button>
           <button class="chip" id="pl-tab-imports" role="tab" aria-pressed="false">ไฟล์ที่นำเข้าไว้</button>
+          <button class="chip" id="pl-tab-lists" role="tab" aria-pressed="false">จากเพลย์ลิสต์อื่น</button>
         </div>
         <input class="edit-input lib-search" id="pl-picker-search" type="search" placeholder="ค้นหาชื่อเพลง" aria-label="ค้นหาเพลง" autocomplete="off">
         <button class="icon-btn small" id="pl-picker-close" aria-label="ปิด">×</button>
@@ -531,7 +561,66 @@
     </dialog>
   </div>
 
+  <!-- Show mode: the setlist player on stage -->
+  <div class="show" id="show" hidden>
+    <div class="show-top">
+      <span class="show-set" id="show-set"></span>
+      <span class="show-count" id="show-count"></span>
+      <span class="show-clock" id="show-clock"></span>
+      <button class="chip" id="show-list-toggle" aria-pressed="true">รายการเพลง</button>
+    </div>
+    <div class="show-body">
+    <div class="show-main">
+      <p class="show-state" id="show-state"></p>
+      <h1 class="show-title" id="show-title"></h1>
+      <p class="show-section"><strong id="show-section"></strong> <span id="show-section-next"></span></p>
+      <div class="show-time"><span id="show-elapsed">0:00</span><span class="show-left" id="show-left">–</span></div>
+      <div class="show-bar"><i id="show-bar"></i></div>
+      <div class="show-next">ต่อไป <strong id="show-next-title"></strong> <span id="show-next-how"></span></div>
+    </div>
+    <aside class="show-list" id="show-list-panel" aria-label="เพลงในเพลย์ลิสต์">
+      <div class="show-list-head">
+        <strong>รายการเพลง <span class="lib-count" id="show-list-count"></span></strong>
+        <button class="btn" id="show-add">+ เพิ่มเพลง</button>
+      </div>
+      <ol class="show-songs" id="show-songs"></ol>
+      <p class="show-list-hint">แตะเพลงเพื่อเลือกเป็นเพลงถัดไปที่จะเล่น ระหว่างเล่นต้องแตะสองครั้งถึงจะเปลี่ยนเพลงทันที ↑ ↓ ย้ายลำดับ</p>
+    </aside>
+    </div>
+    <div class="show-controls">
+      <button class="show-btn" id="show-prev" aria-label="เพลงก่อนหน้า หรือกลับต้นเพลง">
+        <svg viewBox="0 0 24 24" width="40" height="40" fill="currentColor"><path d="M6 5h2.5v14H6zM20 5v14L9 12z"/></svg>
+      </button>
+      <button class="show-btn show-play" id="show-play" aria-label="เล่น / หยุดชั่วคราว">
+        <svg id="show-icon-play" viewBox="0 0 24 24" width="64" height="64" fill="currentColor"><path d="M7 4.5v15l13-7.5z"/></svg>
+        <svg id="show-icon-pause" viewBox="0 0 24 24" width="64" height="64" fill="currentColor" hidden><path d="M6 4h4.5v16H6zM13.5 4H18v16h-4.5z"/></svg>
+      </button>
+      <button class="show-btn" id="show-next" aria-label="เพลงถัดไป">
+        <svg viewBox="0 0 24 24" width="40" height="40" fill="currentColor"><path d="M15.5 5H18v14h-2.5zM4 5v14l11-7z"/></svg>
+      </button>
+      <button class="show-btn" id="show-stop" aria-label="หยุดและกลับต้นเพลง">
+        <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="1.5"/></svg>
+      </button>
+    </div>
+    <div class="show-foot">
+      <span class="show-keys">Space / Enter: เล่น-หยุด · → PageDown: เพลงถัดไป · ← PageUp: ก่อนหน้า</span>
+      <button class="chip" id="show-midi-btn">ตั้งแป้น MIDI</button>
+      <button class="chip" id="show-lock">ล็อกจอ</button>
+      <button class="chip" id="show-exit">ออกจากโหมดโชว์ (Esc)</button>
+    </div>
+    <p class="show-hint" id="show-hint" hidden></p>
+    <div class="show-midi" id="show-midi" hidden>
+      <div class="pl-dialog-head"><strong class="trim-title">ตั้งแป้น MIDI</strong><button class="icon-btn small" id="show-midi-close" aria-label="ปิด">×</button></div>
+      <div class="trim-body">
+        <p class="trim-hint" id="show-midi-status"></p>
+        <p class="trim-hint">กด "ตั้งปุ่ม" แล้วเหยียบแป้นหรือกดปุ่มบนอุปกรณ์ MIDI ที่จะใช้ ค่าจะจำไว้ในเบราว์เซอร์นี้ แป้นเหยียบแบบที่ส่งเป็นปุ่มคีย์บอร์ด (PageDown, ลูกศร) ใช้ได้เลยไม่ต้องตั้ง</p>
+        <div id="show-midi-list"></div>
+      </div>
+    </div>
+  </div>
+
   <script src="app.js"></script>
   <script src="playlist.js"></script>
+  <script src="show.js"></script>
 </body>
 </html>

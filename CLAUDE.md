@@ -42,7 +42,7 @@ Improvement backlog and known gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
 | `app/separator.py` | Demucs models (`MODELS`: htdemucs, htdemucs_ft, htdemucs_6s, htdemucs_lead), `decode_audio` via imageio-ffmpeg, lead/backing split with MelBand Roformer (audio-separator) |
 | `app/analyzer.py` | Tempo/beat tracking, key, chords, sections, loops, loudness, per-stem stats; `ANALYSIS_VERSION = 2` |
 | `app/tempo.py` | Piecewise tempo map (steady / accel / ritard sections) + summary |
-| `app/project.py` | Non-destructive edit model: click grid, cuts, custom tracks, lead-in, merged view for the UI |
+| `app/project.py` | Non-destructive edit model: click grid, cuts, custom tracks, sounds added from files, lead-in, merged view for the UI |
 | `app/cues.py` | Cue library (135 phrases, 6 categories), count-in styles, `say` TTS cache, cue track render |
 | `app/metronome.py` | `write_wav_atomic`, click track render |
 | `app/midi.py` | MIDI tempo map export (tempo per beat, time signatures, section markers, click notes) |
@@ -54,13 +54,14 @@ Improvement backlog and known gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
 | `app/monitor.py` | Per-job resource report (CPU, RAM, GPU via `ioreg`, disk) |
 | `app/playlists.py` | Setlists, imported files (`data/library`), server-rendered project mixes for playback |
 | `static/app.js` | Router, home, processing view, studio (Mixer class, timeline canvas, metronome editor, cues, cuts, lead-in, routing, export) |
+| `static/show.js` | Show mode for the setlist player: full screen, footswitch keys, Web MIDI learn (`prism-show-midi` in localStorage), screen lock, wake lock, leave guard. State object is `stage` (app.js already has `show()`) |
 | `static/playlist.js` | Setlist page, gapless player (`plPlayer`), add-to-setlist dialog from the studio |
 | `tools/promo/` | Scripts that made the promo screenshots, deck images and 9:16 video |
 
 ## Data on disk
 
 - `data/jobs/<id>/`: `meta.json` (`trim: {start, end|null}` when only part of the upload was separated), `source.*`, `stems/*.wav` (never modified after separation),
-  `analysis.json`, `edits.json`, `edited/` (cut results), `warped/` (tempo-locked tracks), `padded/` (stems with lead-in silence),
+  `analysis.json`, `edits.json`, `edited/` (cut results), `added/` (sounds added from files: `<id>.src.wav` as decoded, `<id>.wav` placed on the song), `warped/` (tempo-locked tracks), `padded/` (stems with lead-in silence),
   `cues_render.json`, `tempo.mid` (rebuilt on each download), `playback/<key>.wav|json` (setlist mixes, newest 6 kept), `stems.zip` (cache,
   deleted whenever edits change export content).
 - `data/trash/<kind>-<id>-<rand>/`: a deleted song, import or setlist (`item`) plus `trash.json`; purged after 7 days.
@@ -76,6 +77,9 @@ Improvement backlog and known gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
   Convert only with `project.to_timeline` / `project.to_song`, at the API boundary.
 - **Tempo lock** (`edits.warp`): render chain is stems → edited/ (cuts) → warped/ (lock) → padded/
   (lead-in). While locked the metronome cannot be edited (409) and the grid is steady at the bpm.
+- **Sounds added from files** (`edits.tracks[]` with `kind: "file"`, id `added_…`, `offset` in song time, may be negative
+  = lead-in) are placed, never stretched: `build_warped` puts them at warp(offset), `build_padded` at the
+  timeline position. Cuts from or into them are refused.
 - **Every served track has the same length** (`timeline_samples`), so exports line up at 0 in a DAW.
 - **Atomic writes everywhere** (`write_wav_atomic`, `project._swap_dir`, `playlists.write_json_atomic`):
   a browser may be downloading a file while it is rebuilt.

@@ -458,7 +458,8 @@ class CutRequest(BaseModel):
 
 
 class RenameRequest(BaseModel):
-    name: str
+    name: str | None = None
+    start: float | None = None   # timeline seconds; moves a sound added from a file
 
 
 def editable_job(job_id: str) -> dict:
@@ -821,12 +822,22 @@ def undo_cut(job_id: str) -> dict:
 
 @app.patch("/api/jobs/{job_id}/tracks/{track_id}")
 def rename_track(job_id: str, track_id: str, request: RenameRequest) -> dict:
-    editable_job(job_id)
+    """Rename a track, and/or move a sound added from a file to a new start time."""
+    job = editable_job(job_id)
     folder = job_dir(job_id)
     with edit_lock:
         edits = project.load_edits(folder)
         try:
-            project.rename_track(edits, track_id, request.name)
+            if request.name is not None:
+                project.rename_track(edits, track_id, request.name)
+            if request.start is not None:
+                if not project.is_added(edits, track_id):
+                    raise project.EditError("ย้ายตำแหน่งได้เฉพาะแทร็กที่เพิ่มจากไฟล์")
+                offset = added_offset(edits, request.start)
+                track = next(t for t in edits["tracks"] if t["id"] == track_id)
+                track["offset"] = round(offset, 3)
+                project.render_added(folder, track, separator.SAMPLE_RATE)
+                return commit_cuts(job_id, job, edits, [track_id])
         except project.EditError as error:
             raise HTTPException(422, str(error))
         project.save_edits(folder, edits)
@@ -834,12 +845,56 @@ def rename_track(job_id: str, track_id: str, request: RenameRequest) -> dict:
     return {"changed": []}
 
 
+def added_offset(edits: dict, start: float) -> float:
+    """Timeline start of an added sound to song time; it may sit in the lead-in."""
+    if not math.isfinite(start) or start < 0:
+        raise project.EditError("ตำแหน่งไม่ถูกต้อง")
+    return max(-project.lead_seconds(edits), project.to_song(edits, start))
+
+
+@app.post("/api/jobs/{job_id}/tracks", status_code=201)
+def add_track_from_file(job_id: str, file: UploadFile = File(...), name: str = Form(""), start: float = Form(0.0)) -> dict:
+    """Bring a sound in from a file as a new track (a sample, a part recorded elsewhere, a
+    sound effect), starting at `start` on the timeline. It is not separated or stretched."""
+    job = editable_job(job_id)
+    folder = job_dir(job_id)
+    filename = Path(file.filename or "sound").name
+    suffix = Path(filename).suffix.lower()
+    if suffix not in ALLOWED_SUFFIXES:
+        raise HTTPException(415, f"ไม่รองรับไฟล์ {suffix or 'ชนิดนี้'}")
+    (folder / project.ADDED_DIR).mkdir(exist_ok=True)
+    upload = folder / project.ADDED_DIR / f".upload-{uuid.uuid4().hex[:8]}{suffix}"
+    try:
+        _receive_upload(file, upload)
+        try:
+            audio = separator.decode_audio(upload)
+        except separator.AudioDecodeError as error:
+            raise HTTPException(422, f"อ่านไฟล์เสียงไม่ได้: {error}")
+    finally:
+        upload.unlink(missing_ok=True)
+    with edit_lock:
+        edits = project.load_edits(folder)
+        try:
+            offset = added_offset(edits, start)
+            track = project.add_sound(folder, edits, (name or Path(filename).stem).strip()[:40], audio, offset, separator.SAMPLE_RATE)
+        except project.EditError as error:
+            raise HTTPException(422, str(error))
+        result = commit_cuts(job_id, job, edits, [track["id"]])
+    return {**result, "track": track}
+
+
 @app.delete("/api/jobs/{job_id}/tracks/{track_id}")
 def delete_track(job_id: str, track_id: str) -> dict:
-    """Remove a cut track and put its audio back in the track it came from."""
+    """Remove a cut track and put its audio back in the track it came from, or remove a
+    sound that was added from a file."""
     job = editable_job(job_id)
     with edit_lock:
         edits = project.load_edits(job_dir(job_id))
+        if project.is_added(edits, track_id):
+            project.remove_sound(job_dir(job_id), edits, track_id)
+            for name in (project.WARPED_DIR, project.PADDED_DIR):
+                (job_dir(job_id) / name / f"{track_id}.wav").unlink(missing_ok=True)
+            return commit_cuts(job_id, job, edits, [track_id])
         try:
             changed = project.remove_track(edits, track_id)
         except project.EditError as error:

@@ -72,7 +72,15 @@ function show(view, keepScroll = false) {
   if (!keepScroll) window.scrollTo(0, 0);
 }
 
+let routedHash = location.hash;
 async function route() {
+  // On stage (show mode) the back gesture or a stray link must not stop the set.
+  if (typeof stage !== "undefined" && stage.active && !location.hash.startsWith("#/playlists")) {
+    history.replaceState(null, "", routedHash);
+    toast("ออกจากโหมดโชว์ก่อน (กด Esc หรือปุ่มออกจากโหมดโชว์)");
+    return;
+  }
+  routedHash = location.hash;
   leaveView();
   leaveView = () => {};
   const setlist = location.hash.match(/^#\/playlists(?:\/([0-9a-f]{12}))?$/);
@@ -1004,7 +1012,7 @@ async function showStudio(job, keep = null) {
     if (stem.custom) nameLabel.addEventListener("click", () => beginRename(stem, nameLabel));
     const strip = el("div", { class: `strip${stem.audible ? "" : " silent"}${stem.custom ? " custom" : ""}`, style: `--stem:${stemColor(stem)}` },
       nameLabel,
-      el("div", { class: "strip-buttons" }, muteButton, soloButton, download, stem.custom ? removeTrackButton(stem) : null),
+      el("div", { class: "strip-buttons" }, muteButton, soloButton, download, stem.added ? moveSoundButton(stem) : null, stem.custom ? removeTrackButton(stem) : null),
       el("div", { class: "fader-row" }, fader, value),
       meter,
     );
@@ -2894,7 +2902,7 @@ async function showStudio(job, keep = null) {
     if (document.activeElement !== $("sel-start")) $("sel-start").value = selection.start.toFixed(2);
     if (document.activeElement !== $("sel-end")) $("sel-end").value = selection.end.toFixed(2);
     $("sel-length").textContent = `${(selection.end - selection.start).toFixed(2)} วินาที`;
-    const targets = stems.filter((s) => s.custom && s.id !== selection.stem);
+    const targets = stems.filter((s) => s.custom && !s.added && s.id !== selection.stem);
     const chosen = $("sel-target").value;
     $("sel-target").replaceChildren(el("option", { value: "" }, "แทร็กใหม่"), ...targets.map((t) => el("option", { value: t.id }, t.name)));
     $("sel-target").value = targets.some((t) => t.id === chosen) ? chosen : "";
@@ -3000,11 +3008,103 @@ async function showStudio(job, keep = null) {
     input.select();
   }
 
+  /** Move a sound added from a file so it starts at the playhead. */
+  function moveSoundButton(stem) {
+    const button = el("button", {
+      class: "strip-x", title: `ย้ายให้เริ่มที่ตำแหน่งเล่นอยู่ (ตอนนี้เริ่มที่ ${fmtClock(stem.offset ?? 0)})`, "aria-label": `ย้าย ${stem.name} มาเริ่มที่ตำแหน่งเล่นอยู่`,
+      onclick: async () => {
+        const start = Math.max(0, mixer.position());
+        $("load-note").textContent = "กำลังย้ายเสียง…";
+        try {
+          await api(`/api/jobs/${job.id}/tracks/${stem.id}`, {
+            method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ start }),
+          });
+          await reopen([stem.id]);
+          toast(`${stem.name} เริ่มที่ ${fmtClock(start)} แล้ว`);
+        } catch (error) {
+          $("load-note").textContent = "";
+          toast(error.message);
+        }
+      },
+    }, "⇥");
+    return button;
+  }
+
+  // ---- bring a sound in from a file as a new track
+  const addSound = { file: null };
+  $("btn-add-sound").hidden = false;
+  function addSoundOpen(file = null) {
+    addSound.file = file;
+    $("add-sound-file-name").textContent = file ? file.name : "ยังไม่ได้เลือกไฟล์";
+    $("add-sound-name").value = file ? file.name.replace(/\.[^.]+$/, "").slice(0, 40) : "";
+    $("add-sound-here-time").textContent = fmtClock(mixer.position());
+    $("add-sound-time").value = fmtClock(mixer.position());
+    $("add-sound-progress").textContent = "";
+    $("add-sound-go").disabled = !file;
+    $("add-sound-dialog").showModal();
+  }
+  $("btn-add-sound").addEventListener("click", () => addSoundOpen(), on);
+  $("add-sound-pick").addEventListener("click", () => $("add-sound-input").click(), on);
+  $("add-sound-input").addEventListener("change", () => {
+    const file = $("add-sound-input").files[0];
+    $("add-sound-input").value = "";
+    if (!file) return;
+    addSound.file = file;
+    $("add-sound-file-name").textContent = file.name;
+    if (!$("add-sound-name").value) $("add-sound-name").value = file.name.replace(/\.[^.]+$/, "").slice(0, 40);
+    $("add-sound-go").disabled = false;
+  }, on);
+  $("add-sound-cancel").addEventListener("click", () => $("add-sound-dialog").close(), on);
+  $("add-sound-close").addEventListener("click", () => $("add-sound-dialog").close(), on);
+  $("add-sound-time").addEventListener("focus", () => { $("add-sound-at-time").checked = true; }, on);
+  $("add-sound-go").addEventListener("click", () => {
+    const file = addSound.file;
+    if (!file) return;
+    const where = document.querySelector('input[name="add-sound-at"]:checked')?.value ?? "here";
+    let start = where === "zero" ? 0 : where === "here" ? mixer.position() : plParseTime($("add-sound-time").value);
+    if (start === null || !Number.isFinite(start) || start < 0) return toast("เวลาเริ่มไม่ถูกต้อง (เช่น 1:23.5)");
+    start = Math.min(start, analysis.duration);
+    const form = new FormData();
+    form.append("file", file);
+    form.append("name", $("add-sound-name").value.trim() || file.name);
+    form.append("start", String(start));
+    $("add-sound-go").disabled = true;
+    const request = new XMLHttpRequest();
+    request.open("POST", `/api/jobs/${job.id}/tracks`);
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable) $("add-sound-progress").textContent = event.loaded < event.total ? `กำลังอัปโหลด ${Math.round((event.loaded / event.total) * 100)}%` : "กำลังเตรียมแทร็ก…";
+    };
+    request.onload = async () => {
+      let body = {};
+      try { body = JSON.parse(request.responseText); } catch { /* status says enough */ }
+      if (request.status !== 201) {
+        $("add-sound-go").disabled = false;
+        $("add-sound-progress").textContent = "";
+        return toast(body.detail || "เพิ่มเสียงไม่สำเร็จ");
+      }
+      $("add-sound-dialog").close();
+      if (!alive) return;
+      await reopen(body.changed ?? []);
+      toast(`เพิ่ม “${body.track?.name ?? "เสียงใหม่"}” เป็นแทร็กใหม่ เริ่มที่ ${fmtClock(start)} แล้ว`);
+    };
+    request.onerror = () => { $("add-sound-go").disabled = false; toast("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้"); };
+    request.send(form);
+  }, on);
+  // Drop an audio file on the song page to add it.
+  $("view-studio").addEventListener("drop", (event) => {
+    const file = event.dataTransfer?.files?.[0];
+    if (!file) return;
+    event.preventDefault();
+    addSoundOpen(file);
+  }, on);
+
   function removeTrackButton(stem) {
     let armed = false;
     let timer;
     const button = el("button", {
-      class: "strip-x", title: "ลบแทร็กนี้และคืนเสียงกลับแทร็กเดิม", "aria-label": `ลบแทร็ก ${stem.name} และคืนเสียงกลับแทร็กเดิม`,
+      class: "strip-x",
+      title: stem.added ? "ลบเสียงที่เพิ่มจากไฟล์นี้" : "ลบแทร็กนี้และคืนเสียงกลับแทร็กเดิม",
+      "aria-label": stem.added ? `ลบแทร็ก ${stem.name}` : `ลบแทร็ก ${stem.name} และคืนเสียงกลับแทร็กเดิม`,
       onclick: async () => {
         if (!armed) {
           armed = true;
@@ -3014,7 +3114,7 @@ async function showStudio(job, keep = null) {
           return;
         }
         clearTimeout(timer);
-        $("load-note").textContent = "กำลังคืนเสียงกลับแทร็กเดิม…";
+        $("load-note").textContent = stem.added ? "กำลังลบแทร็ก…" : "กำลังคืนเสียงกลับแทร็กเดิม…";
         try {
           const result = await api(`/api/jobs/${job.id}/tracks/${stem.id}`, { method: "DELETE" });
           await reopen(result.changed);

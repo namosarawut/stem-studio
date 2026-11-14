@@ -598,3 +598,87 @@ select.edit-input { width: auto; font-family: var(--sans); }
 .claude-key { flex: 1; min-width: 200px; }
 .claude-facts { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13.5px; display: grid; gap: 4px; }
 .claude-explanation { margin: 0; white-space: pre-wrap; line-height: 1.7; }
+
+/* Show mode: the setlist player on stage */
+body.show-on { overflow: hidden; }
+.show {
+  position: fixed; inset: 0; z-index: 80; display: flex; flex-direction: column; gap: 16px;
+  padding: max(20px, env(safe-area-inset-top)) 28px 20px; background: #050506; color: var(--text);
+}
+.show-top { display: flex; align-items: baseline; gap: 18px; color: var(--muted); font-size: 18px; }
+.show-set { font-weight: 600; color: var(--text); }
+.show-clock { margin-left: auto; font: 500 22px var(--mono); }
+.show-main { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 14px; min-height: 0; }
+.show-state { margin: 0; color: var(--faint); font-size: 20px; }
+.show-state.live { color: var(--bass); }
+.show-title { margin: 0; font-size: clamp(36px, 7vw, 96px); line-height: 1.1; font-weight: 700; overflow-wrap: anywhere; }
+.show-section { margin: 0; min-height: 1.4em; font-size: clamp(20px, 3vw, 36px); color: var(--muted); }
+.show-section strong { color: var(--drums); margin-right: 12px; }
+.show-time { display: flex; justify-content: space-between; font: 600 clamp(40px, 8vw, 110px) var(--mono); font-variant-numeric: tabular-nums; }
+.show-left { color: var(--muted); }
+.show-bar { height: 10px; border-radius: 5px; background: var(--surface-2); overflow: hidden; }
+.show-bar i { display: block; height: 100%; width: 0; background: var(--bass); }
+.show-next { font-size: clamp(20px, 3vw, 34px); color: var(--muted); }
+.show-next strong { color: var(--text); margin: 0 10px; }
+.show-next span { font-size: 0.7em; color: var(--faint); }
+.show-controls { display: flex; justify-content: center; gap: 20px; }
+.show-btn {
+  display: inline-flex; align-items: center; justify-content: center; width: 120px; height: 100px; border-radius: 22px;
+  border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); transition: background .12s;
+}
+.show-btn.show-play { width: 200px; background: var(--accent); color: #111; border-color: var(--accent); }
+.show-btn.hit { background: var(--bass); color: #111; }
+.show-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--faint); font-size: 14px; }
+.show-keys { margin-right: auto; }
+.show-foot .chip.holding, .show-foot .chip.holding:hover { background: var(--vocals); color: #111; transition: background 1.2s; }
+.show.locked .show-controls, .show.locked .show-main { opacity: .85; }
+.show.locked #show-lock { border-color: var(--vocals); color: var(--vocals); }
+.show-hint {
+  position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%); margin: 0; padding: 10px 16px; border-radius: 10px;
+  background: var(--text); color: #111; font-size: 15px; font-weight: 500;
+}
+.show-midi {
+  position: fixed; right: 24px; bottom: 80px; width: min(520px, calc(100vw - 48px)); border: 1px solid var(--line-strong);
+  border-radius: 14px; background: var(--surface); box-shadow: 0 12px 36px rgba(0, 0, 0, .6);
+}
+.show-midi-row { display: grid; grid-template-columns: 1fr auto auto auto; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); }
+.show-midi-row strong { font: 500 13px var(--mono); color: var(--muted); }
+@media (max-width: 700px) {
+  .show { padding: 16px; }
+  .show-btn { width: 72px; height: 72px; }
+  .show-btn.show-play { width: 110px; }
+}
+
+/* Add a sound from a file */
+.add-sound-at { display: grid; gap: 6px; }
+.add-sound-at .pl-check { display: flex; align-items: center; gap: 8px; }
+
+/* Show mode: the setlist beside the player */
+.show-body { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 28px; min-height: 0; }
+.show-body.no-list { grid-template-columns: minmax(0, 1fr); }
+.show-body.no-list .show-list { display: none; }
+.show-list { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+.show-list-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); font-size: 17px; }
+.show-songs { flex: 1; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+.show-song { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 10px 10px 10px 14px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.show-song:hover { background: var(--surface-2); }
+.show-song .num { color: var(--faint); font: 500 15px var(--mono); }
+.show-song .name { font-size: 18px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.show-song .meta { display: block; color: var(--faint); font: 400 13px var(--mono); }
+.show-song.now { background: rgba(56, 214, 180, .12); }
+.show-song.now .name { color: var(--bass); }
+.show-song.cued .name { color: var(--drums); }
+.show-song.armed { outline: 2px solid var(--drums); outline-offset: -2px; }
+.show-song.missing .name { color: var(--vocals); }
+.show-move { display: flex; gap: 4px; }
+.show-move button { width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--line-strong); color: var(--muted); font-size: 18px; }
+.show-move button:hover:not(:disabled) { color: var(--text); background: var(--surface-2); }
+.show-move button:disabled { opacity: .3; }
+.show-list-hint { margin: 0; padding: 10px 14px; color: var(--faint); font-size: 12.5px; }
+@media (max-width: 1000px) {
+  .show-body { grid-template-columns: minmax(0, 1fr); }
+  .show-body .show-list { position: fixed; top: 64px; right: 16px; bottom: 150px; width: min(400px, calc(100vw - 32px)); z-index: 2; box-shadow: 0 12px 36px rgba(0, 0, 0, .6); }
+  .show-body:not(.list-open) .show-list { display: none; }
+}
+.show-song > span:nth-child(2) { min-width: 0; }
+.show-song .name { display: block; }

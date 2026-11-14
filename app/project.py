@@ -30,6 +30,8 @@ GUIDES = (CLICK, CUES)
 CUE_RENDER_FILE = "cues_render.json"
 PADDED_DIR = "padded"
 WARPED_DIR = "warped"
+ADDED_DIR = "added"          # sounds brought in from files: <id>.src.wav as decoded, <id>.wav placed on the song
+ADDED_PREFIX = "added_"
 MAX_LEAD_BARS = 16
 FADE_SECONDS = 0.01
 MIN_REGION_SECONDS = 0.02
@@ -71,6 +73,8 @@ def _swap_dir(building: Path, target: Path) -> None:
 
 
 def stem_path(folder: Path, stem: str) -> Path:
+    if stem.startswith(ADDED_PREFIX):
+        return folder / ADDED_DIR / f"{stem}.wav"
     edited = folder / EDITED_DIR / f"{stem}.wav"
     return edited if edited.exists() else folder / "stems" / f"{stem}.wav"
 
@@ -146,6 +150,8 @@ def add_cut(folder: Path, edits: dict, base_stems: list[str], duration: float, s
         raise EditError("ไม่พบแทร็กต้นทาง")
     if source == CLICK:
         raise EditError("ตัดจากแทร็กเมโทรนอมไม่ได้")
+    if is_added(edits, source) or (target and is_added(edits, target)):
+        raise EditError("แทร็กที่เพิ่มจากไฟล์ตัดช่วงไม่ได้ ถ้าต้องการเปลี่ยน ลบแล้วเพิ่มใหม่")
     start, end = max(0.0, float(start)), min(duration, float(end))
     if not np.isfinite(start) or not np.isfinite(end) or end - start < MIN_REGION_SECONDS:
         raise EditError("ช่วงที่เลือกสั้นเกินไป")
@@ -179,9 +185,10 @@ def add_cut(folder: Path, edits: dict, base_stems: list[str], duration: float, s
 
 
 def _drop_empty_tracks(edits: dict) -> list[str]:
+    """Cut tracks nothing is cut into any more. Tracks added from a file always stay."""
     used = {op["target"] for op in edits["ops"]}
-    dropped = [t["id"] for t in edits["tracks"] if t["id"] not in used]
-    edits["tracks"] = [t for t in edits["tracks"] if t["id"] in used]
+    dropped = [t["id"] for t in edits["tracks"] if t["id"] not in used and t.get("kind") != "file"]
+    edits["tracks"] = [t for t in edits["tracks"] if t["id"] not in dropped]
     return dropped
 
 
@@ -242,7 +249,67 @@ def clean_click_grid(beats: list[float], downbeats: list[float], meter: int, dur
 
 
 def active_stems(job: dict) -> list[str]:
-    return [s for s in job.get("stems", []) if s not in GUIDES and not s.startswith("custom_")]
+    """The separated stems (not guides, cut tracks or added sounds)."""
+    return [s for s in job.get("stems", []) if s not in GUIDES and not s.startswith(("custom_", ADDED_PREFIX))]
+
+
+# ---------------------------------------------------------------- sounds added from files
+#
+# A sound brought in from a file (a sample, a part recorded elsewhere, a sound effect) is
+# stored as decoded and placed on the song at `offset` (song time; negative = in the
+# lead-in). It is never stretched: with a tempo lock it moves with the song to where that
+# moment lands, but plays at its own speed, since it was usually made at the locked tempo.
+
+def is_added(edits: dict, stem: str) -> bool:
+    track = _track(edits, stem)
+    return bool(track and track.get("kind") == "file")
+
+
+def _place(source: Path, start: int, length: int, out: Path, sample_rate: int) -> np.ndarray:
+    """Write `source` into silence of `length` samples starting at `start` (may be negative
+    or run past the end: the outside part is left out). Returns the written audio."""
+    audio, _ = sf.read(source, dtype="float32", always_2d=True)
+    placed = np.zeros((length, 2), dtype=np.float32)
+    a, b = max(0, start), min(length, start + len(audio))
+    if b > a:
+        placed[a:b] = audio[a - start: b - start, :2] if audio.shape[1] >= 2 else np.repeat(audio[a - start: b - start], 2, axis=1)
+    write_wav_atomic(out, placed, sample_rate)
+    return placed
+
+
+def add_sound(folder: Path, edits: dict, name: str, audio: np.ndarray, offset: float, sample_rate: int) -> dict:
+    """Add a decoded sound (2 × samples) as a new track starting at `offset` (song time)."""
+    if len(edits["tracks"]) >= MAX_TRACKS:
+        raise EditError(f"มีแทร็กได้สูงสุด {MAX_TRACKS} แทร็ก")
+    if not np.isfinite(offset):
+        raise EditError("ตำแหน่งไม่ถูกต้อง")
+    track_id = f"{ADDED_PREFIX}{uuid.uuid4().hex[:8]}"
+    (folder / ADDED_DIR).mkdir(exist_ok=True)
+    write_wav_atomic(folder / ADDED_DIR / f"{track_id}.src.wav", np.clip(audio.T, -1.0, 1.0), sample_rate)
+    track = {
+        "id": track_id, "name": _clean_name(name), "kind": "file", "offset": round(float(offset), 3),
+        "length": round(audio.shape[1] / sample_rate, 3),
+        "color": TRACK_COLORS[edits.get("colors_used", 0) % len(TRACK_COLORS)], "root": None,
+    }
+    edits["tracks"].append(track)
+    edits["colors_used"] = edits.get("colors_used", 0) + 1
+    render_added(folder, track, sample_rate)
+    return track
+
+
+def render_added(folder: Path, track: dict, sample_rate: int) -> None:
+    """The sound placed on the song (song time, song length), and its waveform overview."""
+    reference = next(p for p in sorted((folder / "stems").glob("*.wav")) if p.stem not in GUIDES)
+    frames = sf.info(reference).frames
+    out = folder / ADDED_DIR / f"{track['id']}.wav"
+    placed = _place(folder / ADDED_DIR / f"{track['id']}.src.wav", int(round(track["offset"] * sample_rate)), frames, out, sample_rate)
+    (folder / ADDED_DIR / f"{track['id']}.peaks.json").write_text(json.dumps(_peaks(placed.T, sample_rate)), encoding="utf-8")
+
+
+def remove_sound(folder: Path, edits: dict, track_id: str) -> None:
+    edits["tracks"] = [t for t in edits["tracks"] if t["id"] != track_id]
+    for path in (folder / ADDED_DIR).glob(f"{track_id}.*"):
+        path.unlink(missing_ok=True)
 
 
 def stems_after_edit(job: dict, edits: dict) -> list[str]:
@@ -398,8 +465,14 @@ def build_warped(folder: Path, stems: list[str], edits: dict, sample_rate: int) 
     building = folder / f"{WARPED_DIR}.building"
     shutil.rmtree(building, ignore_errors=True)
     building.mkdir()
-    sources = {stem: stem_path(folder, stem) for stem in stems}
+    sources = {stem: stem_path(folder, stem) for stem in stems if not is_added(edits, stem)}
     peaks = warp.warp_files(sources, building, *mapping, sample_rate, write_wav_atomic, _peaks)
+    length = song_samples(folder, edits, sample_rate)
+    for stem in stems:
+        if is_added(edits, stem):
+            start = int(round(float(to_locked(edits, _track(edits, stem)["offset"])) * sample_rate))
+            placed = _place(folder / ADDED_DIR / f"{stem}.src.wav", start, length, building / f"{stem}.wav", sample_rate)
+            peaks[stem] = _peaks(placed.T, sample_rate)
     (building / PEAKS_FILE).write_text(json.dumps(peaks), encoding="utf-8")
     _swap_dir(building, target)
 
@@ -455,10 +528,17 @@ def build_padded(folder: Path, stems: list[str], edits: dict, sample_rate: int) 
     building = folder / f"{PADDED_DIR}.building"
     shutil.rmtree(building, ignore_errors=True)
     building.mkdir()
+    timeline_peaks = {}
     for stem in stems:
+        if is_added(edits, stem):
+            start = int(round(to_timeline(edits, _track(edits, stem)["offset"]) * sample_rate))
+            placed = _place(folder / ADDED_DIR / f"{stem}.src.wav", start, song_samples(folder, edits, sample_rate) + pad, building / f"{stem}.wav", sample_rate)
+            timeline_peaks[stem] = _peaks(placed.T, sample_rate)  # shows a sound placed in the lead-in too
+            continue
         audio, _ = sf.read(song_track_path(folder, stem, edits), dtype="int16", always_2d=True)
         silence = np.zeros((pad, audio.shape[1]), dtype=np.int16)
         sf.write(building / f"{stem}.wav", np.concatenate([silence, audio]), sample_rate, subtype="PCM_16")
+    (building / PEAKS_FILE).write_text(json.dumps(timeline_peaks), encoding="utf-8")
     _swap_dir(building, target)
 
 
@@ -491,6 +571,17 @@ def merged_view(folder: Path, analysis: dict, edits: dict) -> dict:
         elif stem["id"] != CUES:
             stems.append({**stem, "peaks": silent + peaks.get(stem["id"], stem["peaks"])})
     for track in edits["tracks"]:
+        if track.get("kind") == "file":
+            own = folder / ADDED_DIR / f"{track['id']}.peaks.json"
+            padded_peaks = folder / PADDED_DIR / PEAKS_FILE
+            on_timeline = json.loads(padded_peaks.read_text(encoding="utf-8")).get(track["id"]) if lead > 0 and padded_peaks.exists() else None
+            track_peaks = on_timeline or silent + (peaks.get(track["id"]) or (json.loads(own.read_text(encoding="utf-8")) if own.exists() else []))
+            stems.append({
+                "id": track["id"], "name": track["name"], "custom": True, "added": True, "root": None,
+                "color": track["color"], "audible": True, "peaks": track_peaks,
+                "offset": round(to_timeline(edits, track["offset"]), 3), "length": track.get("length"),
+            })
+            continue
         stems.append({
             "id": track["id"], "name": track["name"], "custom": True, "root": track["root"],
             "color": track["color"], "audible": True, "peaks": silent + peaks.get(track["id"], []),

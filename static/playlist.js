@@ -363,12 +363,12 @@ const plPlayer = {
 
 // ------------------------------------------------------------------ saving
 
-function plSave(changedId = null, replan = true) {
-  const list = pl.shown;
+function plSave(changedId = null, replan = true, list = pl.shown) {
   if (!list) return;
   if (replan && pl.playing === list) plPlayer.replan(changedId);
-  clearTimeout(pl.saveTimer);
-  pl.saveTimer = setTimeout(async () => {
+  pl.saveTimers ??= {};
+  clearTimeout(pl.saveTimers[list.id]);
+  pl.saveTimers[list.id] = setTimeout(async () => {
     try {
       const saved = await api(`/api/playlists/${list.id}`, {
         method: "PUT", headers: { "Content-Type": "application/json" },
@@ -430,6 +430,7 @@ async function showPlaylists(playlistId) {
     // Moving between setlists keeps the music going; leaving the page stops it.
     if (location.hash.startsWith("#/playlists")) return;
     cancelAnimationFrame(pl.frame);
+    plShowExit();
     plPlayer.halt();
     pl.events?.abort();
     pl.events = null;
@@ -445,6 +446,7 @@ function plBind() {
   $("pl-prev").addEventListener("click", () => plPlayer.step(-1), on);
   $("pl-next").addEventListener("click", () => plPlayer.step(1), on);
   $("pl-stop").addEventListener("click", () => plPlayer.halt(), on);
+  $("pl-show").addEventListener("click", () => plShowEnter(), on);
   $("pl-create").addEventListener("click", plCreate, on);
   $("pl-create-2").addEventListener("click", plCreate, on);
   $("pl-name").addEventListener("input", () => { pl.shown.name = $("pl-name").value; plSave(null, false); }, on);
@@ -457,12 +459,13 @@ function plBind() {
   }, on);
   $("pl-delete").addEventListener("click", plDelete, on);
   $("pl-file").addEventListener("change", () => { plImport([...$("pl-file").files]); $("pl-file").value = ""; }, on);
-  $("pl-add-project").addEventListener("click", plOpenPicker, on);
+  $("pl-add-project").addEventListener("click", () => plOpenPicker(), on);
   $("pl-picker-close").addEventListener("click", () => $("pl-picker").close(), on);
   $("pl-picker").addEventListener("click", (event) => { if (event.target === $("pl-picker")) $("pl-picker").close(); }, on);
   $("pl-picker-search").addEventListener("input", plRenderPicker, on);
   $("pl-tab-projects").addEventListener("click", () => { pl.pickerTab = "projects"; plRenderPicker(); }, on);
   $("pl-tab-imports").addEventListener("click", () => { pl.pickerTab = "imports"; plRenderPicker(); }, on);
+  $("pl-tab-lists").addEventListener("click", () => { pl.pickerTab = "lists"; plRenderPicker(); }, on);
 
   const progress = $("pl-progress");
   const seekAt = (event) => {
@@ -1082,8 +1085,8 @@ function plRenderNow(state = null) {
   const list = plPlayer.list();
   const id = plPlayer.currentId();
   const item = id ? plPlayer.item(id) : null;
-  $("pl-icon-play").hidden = plPlayer.playing;
-  $("pl-icon-pause").hidden = !plPlayer.playing;
+  $("pl-icon-play").toggleAttribute("hidden", plPlayer.playing);  // SVG has no .hidden property
+  $("pl-icon-pause").toggleAttribute("hidden", !plPlayer.playing);
   $("pl-play").setAttribute("aria-label", plPlayer.playing ? "หยุดชั่วคราว" : "เล่น");
   $("pl-play").disabled = !list?.items.length;
   if (!item || !list) {
@@ -1105,6 +1108,7 @@ function plRenderNow(state = null) {
     document.querySelectorAll(".pl-item").forEach((row) => row.classList.toggle("current", row.dataset.id === currentId));
   }
   plRenderSide();
+  plShowRender(true);
 }
 
 function plRenderClock() {
@@ -1131,6 +1135,7 @@ function plRenderClock() {
     if (row) row.style.width = `${share * 100}%`;
   }
   if (plWave?.itemId === item.id) plDrawOpenWave();
+  plShowRender();
 }
 
 // ------------------------------------------------------------------ adding songs
@@ -1161,8 +1166,11 @@ async function plImport(files) {
   if (added) toast(`เพิ่ม ${added} เพลงจากเครื่องแล้ว`);
 }
 
-function plOpenPicker() {
-  if (!pl.shown) return;
+/** Add songs to `list` (the setlist open on the page, or the one playing in show mode). */
+function plOpenPicker(list = pl.shown) {
+  if (!list) return;
+  pl.pickerList = list;
+  pl.otherLists = new Map();  // fetched again each time: other setlists may have changed
   $("pl-picker-search").value = "";
   plRenderPicker();
   $("pl-picker").showModal();
@@ -1175,13 +1183,28 @@ function plOpenPicker() {
   }).catch(() => {});
 }
 
+/** Copy of a setlist item for another setlist: same song, points and mix, a new id. */
+function plCopyItem(item) {
+  return { ...structuredClone(item), id: plNewId() };
+}
+
+function plAddToList(list, items) {
+  list.items.push(...items);
+  plSave(null, true, list);
+  if (list === pl.shown) plRenderItems();
+  plShowRender(true);
+}
+
 function plRenderPicker() {
-  const list = pl.shown;
+  const list = pl.pickerList ?? pl.shown;
   if (!list) return;
-  const projects = pl.pickerTab === "projects";
-  $("pl-tab-projects").setAttribute("aria-pressed", String(projects));
-  $("pl-tab-imports").setAttribute("aria-pressed", String(!projects));
+  const tab = pl.pickerTab ?? "projects";
+  $("pl-tab-projects").setAttribute("aria-pressed", String(tab === "projects"));
+  $("pl-tab-imports").setAttribute("aria-pressed", String(tab === "imports"));
+  $("pl-tab-lists").setAttribute("aria-pressed", String(tab === "lists"));
   const terms = $("pl-picker-search").value.normalize("NFC").toLowerCase().split(/\s+/).filter(Boolean);
+  if (tab === "lists") return plRenderPickerLists(list, terms);
+  const projects = tab === "projects";
   const source = projects ? [...pl.jobs.values()] : [...pl.imports.values()];
   const shown = source.filter((entry) => {
     const text = [entry.title, entry.key, entry.filename].filter(Boolean).join(" ").normalize("NFC").toLowerCase();
@@ -1196,9 +1219,7 @@ function plRenderPicker() {
     add.addEventListener("click", () => {
       const item = { id: plNewId(), kind, ref: entry.id, title: entry.title, start: 0, end: null, stop_after: false, fade_in: 0, fade_out: 0 };
       if (projects) item.mix = plDefaultMix(entry.id);
-      list.items.push(item);
-      plSave();
-      plRenderItems();
+      plAddToList(list, [item]);
       plRenderPicker();
       toast(`เพิ่ม "${entry.title}" แล้ว`);
     });
@@ -1212,6 +1233,42 @@ function plRenderPicker() {
   $("pl-picker-note").textContent = shown.length
     ? (projects ? "เพลงจากโปรเจกต์เล่นเป็นมิกซ์ของแทร็ก (ปิดเมโทรนอมไว้ก่อน) ปรับแทร็กและลำโพงได้ในรายละเอียดของเพลง" : "ไฟล์ที่นำเข้าไว้ใช้ซ้ำในหลายเพลย์ลิสต์ได้")
     : terms.length ? "ไม่พบเพลงที่ตรงกับคำค้น" : projects ? "ยังไม่มีโปรเจกต์ที่แยกเสร็จ" : "ยังไม่มีไฟล์ที่นำเข้า กด \"นำเข้าไฟล์จากเครื่อง\" ในหน้าเพลย์ลิสต์";
+}
+
+/** The "from other setlists" tab: every song of every other setlist, copied on add. */
+function plRenderPickerLists(list, terms) {
+  const others = pl.lists.filter((p) => p.id !== list.id);
+  const missing = others.filter((p) => !pl.otherLists.has(p.id));
+  if (missing.length) {
+    for (const entry of missing) pl.otherLists.set(entry.id, null);
+    Promise.all(missing.map((entry) => api(`/api/playlists/${entry.id}`).then((full) => pl.otherLists.set(entry.id, full)).catch(() => {})))
+      .then(() => { if ($("pl-picker").open && pl.pickerTab === "lists") plRenderPicker(); });
+  }
+  const rows = [];
+  for (const entry of others) {
+    const full = pl.otherLists.get(entry.id);
+    const items = (full?.items ?? []).filter((item) => terms.every((t) => item.title.normalize("NFC").toLowerCase().includes(t)));
+    if (full && !items.length) continue;
+    const all = el("button", { class: "btn" }, "เพิ่มทั้งหมด");
+    all.disabled = !items.length;
+    all.addEventListener("click", () => {
+      plAddToList(list, items.map(plCopyItem));
+      toast(`เพิ่ม ${items.length} เพลงจาก "${entry.name}" แล้ว`);
+    });
+    rows.push(el("li", { class: "pl-pick pl-pick-group" },
+      el("span", { class: "pl-pick-text" }, el("span", { class: "pl-title" }, entry.name), el("span", { class: "pl-meta" }, full ? `${full.items.length} เพลง` : "กำลังโหลด…")),
+      all));
+    for (const item of items) {
+      const add = el("button", { class: "btn" }, "เพิ่ม");
+      add.addEventListener("click", () => { plAddToList(list, [plCopyItem(item)]); toast(`เพิ่ม "${item.title}" แล้ว`); });
+      const meta = [item.kind === "project" ? "โปรเจกต์" : "ไฟล์", item.start > 0 || item.end !== null ? `${plTime(item.start)}–${item.end === null ? "จบเพลง" : plTime(item.end)}` : null].filter(Boolean).join(" · ");
+      rows.push(el("li", { class: "pl-pick pl-pick-sub" }, el("span", { class: "pl-pick-text" }, el("span", { class: "pl-title" }, item.title), el("span", { class: "pl-meta" }, meta)), add));
+    }
+  }
+  $("pl-picker-list").replaceChildren(...rows);
+  $("pl-picker-note").textContent = !others.length ? "ยังไม่มีเพลย์ลิสต์อื่น"
+    : rows.length ? "เพิ่มแล้วได้สำเนาของเพลงนั้น พร้อมจุดเริ่ม จุดจบ และมิกซ์เดิม แก้ในเพลย์ลิสต์นี้ไม่กระทบเพลย์ลิสต์ต้นทาง"
+    : terms.length ? "ไม่พบเพลงที่ตรงกับคำค้น" : "เพลย์ลิสต์อื่นยังไม่มีเพลง";
 }
 
 function plImportDeleteButton(entry) {

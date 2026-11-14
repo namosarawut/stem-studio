@@ -10,7 +10,7 @@
 |---|---|---|
 | P1 | **Export สำหรับ DAW** | ~~ไฟล์ MIDI tempo map~~ ทำแล้ว (`app/midi.py`, ปุ่ม Tempo map และใน ZIP) เปิดใน GarageBand ได้ (ยังไม่ได้วัดว่าคลิกตรงถึงท้ายเพลงใน DAW); ที่เหลือ: เลือก 48 kHz และ 24-bit ได้ (ตอนนี้ 44.1 kHz และ `write_wav_atomic` เขียน 16-bit) |
 | P2 | **เพลย์ลิสต์หลายช่อง** | เลือกการ์ดเสียง (`AudioContext.setSinkId`) และส่งแต่ละแทร็กออกช่องที่กำหนด (`destination.channelCount` ตาม `maxChannelCount` + `ChannelMergerNode` N ช่อง) ตอนนี้ server รวมเป็นสเตอริโอ (`playlists.render_mix`) ต้องเปลี่ยนเป็นโหลด stem แยก หรือเรนเดอร์ WAV หลายช่อง |
-| P3 | **โหมดโชว์** | สั่งเพลงถัดไปด้วย footswitch หรือ Web MIDI (footswitch หลายรุ่นส่งเป็นปุ่ม PageDown/ลูกศร); ล็อกหน้าจอกันกดผิด; เตือนก่อนปิดแท็บ (`beforeunload`); Wake Lock กันเครื่องหลับ |
+| ~~P3~~ | **โหมดโชว์** (ทำแล้ว `static/show.js`; ยังไม่ได้ลองกับแป้นเหยียบ/MIDI จริง) | สั่งเพลงถัดไปด้วย footswitch หรือ Web MIDI (footswitch หลายรุ่นส่งเป็นปุ่ม PageDown/ลูกศร); ล็อกหน้าจอกันกดผิด; เตือนก่อนปิดแท็บ (`beforeunload`); Wake Lock กันเครื่องหลับ |
 | P4 | Timecode | export แทร็ก LTC หรือส่ง MIDI clock/MTC ให้ไฟและวิดีโอเล่นตาม |
 | P5 | ระบบสำรอง | เครื่องหลักกับเครื่องสำรองเล่นซิงก์กัน อาจเกินขอบเขตของโปรแกรมนี้ ให้ DAW ทำแทนได้ |
 
