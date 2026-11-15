@@ -1,6 +1,6 @@
 # คู่มือ Prism: ที่มาของหน้าและภาพ
 
-ตัวคู่มืออยู่ที่ [docs/manual/index.html](../../docs/manual/index.html) (เปิดจากโฟลเดอร์ได้เลย ไม่ต้องรันโปรแกรม) โฟลเดอร์นี้เก็บสิ่งที่ใช้สร้างมัน
+ตัวคู่มืออยู่ที่ [docs/manual/index.html](../../docs/manual/index.html) (เปิดจากโฟลเดอร์ได้เลย ไม่ต้องรันโปรแกรม) และออนไลน์ที่ https://namosarawut.github.io/stem-studio/manual/ ผ่าน GitHub Pages (สร้างจาก `docs/` ของ `main` ทุกครั้งที่ push) โฟลเดอร์นี้เก็บสิ่งที่ใช้สร้างมัน
 
 | ไฟล์ | หน้าที่ |
 |---|---|
