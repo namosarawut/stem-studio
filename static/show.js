@@ -314,7 +314,9 @@ function showRenderList() {
   $("show-list-count").textContent = `${list.items.length} เพลง`;
   ol.replaceChildren(...list.items.map((item, index) => {
     const known = plKnown(item);
-    const { start, end } = plRange(item);
+    // Until a song's mix has been rendered, its length from the song list stands in.
+    const guess = known?.duration ?? (item.kind === "project" ? pl.jobs.get(item.ref)?.duration : pl.imports.get(item.ref)?.duration) ?? null;
+    const { start, end } = plRange(item, guess);
     const length = Number.isFinite(end) ? fmtTime(end - start) : known ? "" : "…";
     const status = item.id === currentId ? (plPlayer.playing ? "กำลังเล่น" : "พร้อมเล่น") : "";
     const meta = [length, status, item.stop_after ? "จบแล้วหยุดรอ" : null, plMissing(item) ? "ไม่พบต้นฉบับ" : null].filter(Boolean).join(" · ");

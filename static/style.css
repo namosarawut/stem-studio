@@ -650,6 +650,7 @@ body.show-on { overflow: hidden; }
 }
 
 /* Add a sound from a file */
+#add-sound-name { width: 260px; max-width: 100%; font-family: var(--sans); }
 .add-sound-at { display: grid; gap: 6px; }
 .add-sound-at .pl-check { display: flex; align-items: center; gap: 8px; }
 

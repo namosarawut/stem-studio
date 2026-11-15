@@ -579,9 +579,13 @@ function plSummary() {
   let total = 0;
   let unknown = 0;
   for (const item of list.items) {
-    const { start, end } = plRange(item, plKnown(item)?.duration ?? (item.kind === "file" ? pl.imports.get(item.ref)?.duration : null) ?? null);
+    // A project's mix is measured once it has been rendered; until then its song length
+    // (without any lead-in) stands in, so the total is close instead of leaving it out.
+    const known = plKnown(item)?.duration ?? (item.kind === "file" ? pl.imports.get(item.ref)?.duration : null) ?? null;
+    const guess = known ?? (item.kind === "project" ? pl.jobs.get(item.ref)?.duration ?? null : null);
+    const { start, end } = plRange(item, guess);
     if (Number.isFinite(end)) total += end - start;
-    else unknown++;
+    if (known == null) unknown++;
   }
   total += (list.gap || 0) * Math.max(0, list.items.length - 1);
   $("pl-summary").textContent = list.items.length

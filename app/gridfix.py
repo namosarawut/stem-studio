@@ -34,6 +34,9 @@ MAX_SPACING_CHANGE = 0.12
 HIT_STRENGTH = 0.15     # onsets weaker than this share of the loudest are ignored
 AMBIGUOUS = 0.3         # a beat count this far from a whole number is left as it was
 JOIN_BEATS = 16         # spots this close are rebuilt as one
+ODD_CONTEXT = 6         # gaps either side that must agree before one beat is called out of place
+ODD_STEADY = 0.15       # ... agree: longest of them at most this much over the shortest
+ODD_DRAG = 0.3          # a long and a short gap differing by this share of a beat: a dragged beat
 DRIFT_SECONDS = 0.035   # a stretch of beats this far off the drums on average has drifted
 DRIFT_SHARE = 0.2       # a grid drifted over this share of its length no longer follows the song
 
@@ -144,6 +147,49 @@ def problem_spots(beats: np.ndarray, bpm: float, limit: float, join: int = 4) ->
     return [(lo, hi, worst) for lo, hi, worst in spots]
 
 
+def odd_gaps(beats: np.ndarray) -> list[tuple[int, int, float]]:
+    """One beat out of place inside a steady stretch: missing (one gap twice as long),
+    one too many (two gaps that add up to one beat), or dragged off its place (a long
+    gap next to a short one that add up to two beats). The lock check alone misses these:
+    the time map pins only beats on a straight line, so one beat off spreads over dozens
+    and looks like a few %. Only where the beats either side agree with each other, so a
+    real tempo change or a loose live feel is left alone."""
+    gaps = np.diff(beats)
+    spots: list[tuple[int, int, float]] = []
+    j = 0
+    while j < len(gaps):
+        around = np.concatenate([gaps[max(0, j - ODD_CONTEXT):j], gaps[j + 2:j + 2 + ODD_CONTEXT]])
+        if len(around) < ODD_CONTEXT or around.max() / around.min() > 1 + ODD_STEADY:
+            j += 1
+            continue
+        period = float(np.median(around))
+        one = gaps[j] / period
+        two = (gaps[j] + gaps[j + 1]) / period if j + 1 < len(gaps) else None
+        if 1.75 <= one <= 2.25:
+            spots.append((j, j + 1, one - 1))                                  # missing
+        elif two is not None and 0.85 <= two <= 1.15 and max(gaps[j], gaps[j + 1]) < 0.8 * period:
+            spots.append((j, j + 2, 1.0))                                      # one too many
+        elif two is not None and 1.9 <= two <= 2.1 and abs(gaps[j] - gaps[j + 1]) > ODD_DRAG * period:
+            spots.append((j, j + 2, abs(gaps[j] - gaps[j + 1]) / period / 2))   # dragged
+        else:
+            j += 1
+            continue
+        j = spots[-1][1]
+    return spots
+
+
+def _spots(beats: np.ndarray, bpm: float, join: int) -> list[tuple[int, int, float]]:
+    """Places to rebuild: where a lock would stretch too far, and where one beat is off."""
+    merged: list[list] = []
+    for lo, hi, worst in sorted(problem_spots(beats, bpm, FIX_STRETCH) + odd_gaps(beats)):
+        if merged and lo <= merged[-1][1] + join:
+            merged[-1][1] = max(merged[-1][1], hi)
+            merged[-1][2] = max(merged[-1][2], worst)
+        else:
+            merged.append([lo, hi, worst])
+    return [(lo, hi, worst) for lo, hi, worst in merged]
+
+
 def _anchors(beats: np.ndarray, hits: np.ndarray, lo: int, hi: int) -> tuple[int, int, bool]:
     a = lo
     while a > max(1, lo - MAX_SEARCH) and not (_on_hit(hits, beats[a]) and _on_hit(hits, beats[a - 1])):
@@ -226,7 +272,7 @@ def repair(beats: list[float], downbeats: list[float], meter: int, hits: np.ndar
     limit = len(b)  # spots are rebuilt from the end, so indices before `limit` still match b
     # Spots close together are often one mistake and its correction (a beat early, one
     # late), so they are rebuilt as one span.
-    for lo, hi, worst in reversed(problem_spots(b, bpm, FIX_STRETCH, join=JOIN_BEATS)):
+    for lo, hi, worst in reversed(_spots(b, bpm, JOIN_BEATS)):
         if hi >= limit - 1:
             continue
         # Try the nearest solid beats first, then reach further out. A wider span often
