@@ -57,7 +57,7 @@ Improvement backlog and known gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
 | `static/show.js` | Show mode for the setlist player: full screen, footswitch keys, Web MIDI learn (`prism-show-midi` in localStorage), screen lock, wake lock, leave guard. State object is `stage` (app.js already has `show()`) |
 | `static/playlist.js` | Setlist page, gapless player (`plPlayer`), add-to-setlist dialog from the studio |
 | `tools/promo/` | Scripts that made the promo screenshots, deck images and 9:16 video |
-| `docs/manual/` | User manual in Thai (4 phases, screenshots and animations), a static page: open `index.html` |
+| `docs/manual/` | User manual in Thai (4 phases, screenshots and animations), a static page: open `index.html`, or `/manual/` on the server (the "คู่มือ" button on the home page) |
 | `tools/manual/` | Manual source (`template.html`, `meta.json`) and the scripts that build it and capture its images. When UI text or controls change, update the manual too |
 
 ## Data on disk

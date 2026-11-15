@@ -34,7 +34,7 @@ os.environ.setdefault("TORCH_HOME", str(ROOT / "models"))
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile  # noqa: E402
-from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
@@ -1189,4 +1189,12 @@ def delete_playlist(playlist_id: str) -> None:
                   {"songs": len(current.get("items", []))})
 
 
+# The illustrated user manual (docs/manual, built by tools/manual), opened from the home page.
+MANUAL_DIR = ROOT / "docs" / "manual"
+if MANUAL_DIR.is_dir():
+    @app.get("/manual", include_in_schema=False)
+    def manual_page() -> RedirectResponse:
+        return RedirectResponse("/manual/")
+
+    app.mount("/manual", StaticFiles(directory=MANUAL_DIR, html=True), name="manual")
 app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
