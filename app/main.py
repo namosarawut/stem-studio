@@ -38,7 +38,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse  # no
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
-from . import assistant, cues as cue_track, gridfix, midi, playlists, project, separator, trash, warp  # noqa: E402
+from . import assistant, cues as cue_track, fsutil, gridfix, midi, playlists, project, separator, trash, warp  # noqa: E402
 from .analyzer import ANALYSIS_VERSION, STEM_THAI, _peaks, analyze  # noqa: E402
 from .metronome import render_click  # noqa: E402
 from .monitor import ResourceMonitor  # noqa: E402
@@ -78,7 +78,7 @@ def save_meta(job: dict) -> None:
     path = job_dir(job["id"]) / "meta.json"
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
-    temporary.replace(path)
+    fsutil.replace(temporary, path)
 
 
 def update_job(job_id: str, persist: bool = False, **fields) -> None:
@@ -137,14 +137,14 @@ def render_cues(folder: Path, analysis: dict, edits: dict) -> None:
     path = folder / project.CUE_RENDER_FILE
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(rendered), encoding="utf-8")
-    temporary.replace(path)
+    fsutil.replace(temporary, path)
 
 
 def write_analysis(folder: Path, result: dict) -> None:
     path = folder / "analysis.json"
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
-    temporary.replace(path)
+    fsutil.replace(temporary, path)
 
 
 def process(job_id: str) -> None:
@@ -226,7 +226,7 @@ def upgrade_analysis(job_id: str) -> None:
             edits = project.load_edits(folder)
             render_click_track(folder, result, edits)
             render_cues(folder, result, edits)
-            (folder / "stems.zip").unlink(missing_ok=True)
+            fsutil.discard(folder / "stems.zip")
         guides = [g for g in project.GUIDES if g not in job["stems"]]
         update_job(job_id, persist=True, stems=[*job["stems"], *guides], bpm=result["tempo"]["bpm"], key=result["key"]["name"])
 
@@ -248,7 +248,7 @@ def ensure_click_track(job_id: str) -> None:
             if "cues" not in job["stems"]:
                 folder = job_dir(job_id)
                 render_cues(folder, read_analysis_file(job_id), project.load_edits(folder))
-                (folder / "stems.zip").unlink(missing_ok=True)
+                fsutil.discard(folder / "stems.zip")
                 update_job(job_id, persist=True, stems=[*job["stems"], "cues"])
             return
         folder = job_dir(job_id)
@@ -256,7 +256,7 @@ def ensure_click_track(job_id: str) -> None:
         result = analyze(stems)
         add_click_track(folder, result, stems)
         write_analysis(folder, result)
-        (folder / "stems.zip").unlink(missing_ok=True)  # rebuilt with the click on next download
+        fsutil.discard(folder / "stems.zip")  # rebuilt with the click on next download
         render_cues(folder, result, project.load_edits(folder))
         update_job(job_id, persist=True, stems=[*job["stems"], "click", "cues"], bpm=result["tempo"]["bpm"], key=result["key"]["name"])
 
@@ -480,7 +480,7 @@ def commit_cuts(job_id: str, job: dict, edits: dict, changed: list[str]) -> dict
     project.build_warped(folder, song_tracks(job, edits), edits, separator.SAMPLE_RATE)
     project.build_padded(folder, song_tracks(job, edits), edits, separator.SAMPLE_RATE)
     project.save_edits(folder, edits)
-    (folder / "stems.zip").unlink(missing_ok=True)
+    fsutil.discard(folder / "stems.zip")
     update_job(job_id, persist=True, stems=project.stems_after_edit(job, edits))
     return {"changed": changed}
 
@@ -513,7 +513,7 @@ def update_click(job_id: str, grid: ClickGrid) -> dict:
         # Counts sit on the beats, so they follow the metronome.
         if any(c["kind"] == "count" for c in edits.get("cues", [])):
             render_cues(folder, analysis, edits)
-        (folder / "stems.zip").unlink(missing_ok=True)
+        fsutil.discard(folder / "stems.zip")
         return {**project.timeline_grid(analysis, edits), **project.tempo_view(analysis, edits)}
 
 
@@ -656,7 +656,7 @@ def reset_click(job_id: str) -> dict:
         project.save_edits(folder, edits)
         if any(c["kind"] == "count" for c in edits.get("cues", [])):
             render_cues(folder, analysis, edits)
-        (folder / "stems.zip").unlink(missing_ok=True)
+        fsutil.discard(folder / "stems.zip")
         return {**project.timeline_grid(analysis, edits), **project.tempo_view(analysis, edits)}
 
 
@@ -696,7 +696,7 @@ def set_lead_in(job_id: str, request: LeadIn) -> dict:
         render_click_track(folder, analysis, edits)
         render_cues(folder, analysis, edits)
         project.save_edits(folder, edits)
-        (folder / "stems.zip").unlink(missing_ok=True)
+        fsutil.discard(folder / "stems.zip")
     return {"bars": request.bars, "seconds": round(lead, 6), "added_count": added}
 
 
@@ -738,7 +738,7 @@ def set_tempo_lock(job_id: str, request: TempoLock) -> dict:
         render_click_track(folder, analysis, edits)
         render_cues(folder, analysis, edits)
         project.save_edits(folder, edits)
-        (folder / "stems.zip").unlink(missing_ok=True)
+        fsutil.discard(folder / "stems.zip")
     lock = edits.get("warp")
     return {
         "bpm": lock["bpm"] if lock else None,
@@ -783,7 +783,7 @@ def save_cues(job_id: str, request: CueList) -> dict:
         except (TypeError, KeyError, ValueError):
             raise HTTPException(422, "ข้อมูล cue ไม่ถูกต้อง")
         project.save_edits(folder, edits)
-        (folder / "stems.zip").unlink(missing_ok=True)
+        fsutil.discard(folder / "stems.zip")
     rendered = json.loads((folder / project.CUE_RENDER_FILE).read_text(encoding="utf-8"))
     on_timeline = [{**c, "time": round(project.to_timeline(edits, c["time"]), 3)} for c in cleaned]
     return {"cues": on_timeline, "count_beats": rendered["counts"], "peaks": rendered["peaks"]}
@@ -841,7 +841,7 @@ def rename_track(job_id: str, track_id: str, request: RenameRequest) -> dict:
         except project.EditError as error:
             raise HTTPException(422, str(error))
         project.save_edits(folder, edits)
-        (folder / "stems.zip").unlink(missing_ok=True)
+        fsutil.discard(folder / "stems.zip")
     return {"changed": []}
 
 
@@ -893,7 +893,7 @@ def delete_track(job_id: str, track_id: str) -> dict:
         if project.is_added(edits, track_id):
             project.remove_sound(job_dir(job_id), edits, track_id)
             for name in (project.WARPED_DIR, project.PADDED_DIR):
-                (job_dir(job_id) / name / f"{track_id}.wav").unlink(missing_ok=True)
+                fsutil.try_unlink(job_dir(job_id) / name / f"{track_id}.wav")
             return commit_cuts(job_id, job, edits, [track_id])
         try:
             changed = project.remove_track(edits, track_id)
@@ -923,7 +923,7 @@ def write_tempo_midi(job: dict, folder: Path, edits: dict) -> Path:
     path = folder / "tempo.mid"
     temporary = path.with_suffix(".tmp")
     temporary.write_bytes(data)
-    temporary.replace(path)
+    fsutil.replace(temporary, path)
     return path
 
 
@@ -947,7 +947,7 @@ def download_zip(job_id: str) -> FileResponse:
     folder = job_dir(job_id)
     archive = folder / "stems.zip"
     with edit_lock:
-        if not archive.exists():
+        if not fsutil.is_current(archive):
             edits = project.load_edits(folder)
             temporary = archive.with_suffix(".tmp")
             used: set[str] = set()
@@ -966,7 +966,7 @@ def download_zip(job_id: str) -> FileResponse:
                         bundle.write(write_tempo_midi(job, folder, edits), "tempo.mid")
                     except ValueError:
                         pass
-            temporary.replace(archive)
+            fsutil.replace(temporary, archive)
     return FileResponse(archive, media_type="application/zip", filename=f"{job['title']} - stems.zip")
 
 

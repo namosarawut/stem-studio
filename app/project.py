@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
-from . import warp
+from . import fsutil, warp
 from .analyzer import _peaks
 from .metronome import write_wav_atomic
 from .tempo import summary as tempo_summary
@@ -59,7 +59,7 @@ def save_edits(folder: Path, edits: dict) -> None:
     path = folder / EDITS_FILE
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(edits, ensure_ascii=False), encoding="utf-8")
-    temporary.replace(path)
+    fsutil.replace(temporary, path)
 
 
 def _swap_dir(building: Path, target: Path) -> None:
@@ -67,9 +67,10 @@ def _swap_dir(building: Path, target: Path) -> None:
     folder is missing. Files already open for download stay readable until closed."""
     retired = target.with_name(f".{target.name}.{uuid.uuid4().hex[:8]}.old")
     if target.exists():
-        target.replace(retired)
-    building.replace(target)
-    shutil.rmtree(retired, ignore_errors=True)
+        fsutil.replace(target, retired)
+    fsutil.replace(building, target)
+    # On Windows a folder with a file still open cannot be removed yet: sweep earlier ones too.
+    fsutil.sweep(target.parent, f".{target.name}.*.old")
 
 
 def stem_path(folder: Path, stem: str) -> Path:

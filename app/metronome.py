@@ -1,12 +1,13 @@
 """Renders a click track from a song's beat grid, placed to the exact sample."""
 from __future__ import annotations
 
-import os
 import uuid
 from pathlib import Path
 
 import numpy as np
 import soundfile as sf
+
+from . import fsutil
 
 ACCENT_HZ, BEAT_HZ = 2000.0, 1000.0
 ACCENT_LEVEL, BEAT_LEVEL = 0.8, 0.55
@@ -25,7 +26,7 @@ def write_wav_atomic(path: Path, audio: np.ndarray, sample_rate: int) -> None:
     temporary = path.with_name(f".{path.stem}.{uuid.uuid4().hex[:8]}.tmp")
     try:
         sf.write(temporary, audio, sample_rate, subtype="PCM_16", format="WAV")
-        os.replace(temporary, path)
+        fsutil.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
 

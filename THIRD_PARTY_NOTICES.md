@@ -53,6 +53,10 @@ on the user's Mac. Apple's licence for the system voices allows personal, non-co
 use the generated cue audio in paid work, or redistribute it, check that licence or replace the
 voices with your own recordings. (Planned: see `docs/ROADMAP.md`.)
 
+On Windows the cues use the voices installed in Windows (through `app/winspeech.ps1`), which are
+covered by the Windows licence. The same advice applies: check it before using the cue audio in paid
+work or redistributing it.
+
 ## Your own audio
 
 Prism processes the files you give it. Make sure you have the right to use the songs, and keep

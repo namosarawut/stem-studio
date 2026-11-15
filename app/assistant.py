@@ -28,7 +28,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import gridfix, warp
+from . import fsutil, gridfix, warp
 
 MODEL = "claude-opus-5-5"
 PRICE_PER_MTOK = (4.0, 20.0)   # input, output in USD for MODEL
@@ -38,7 +38,8 @@ KEY_FILE = Path.home() / ".config" / "prism" / "anthropic-key"
 CLI_MODEL = "opus"         # Claude Code's alias for its newest Opus
 CLI_TIMEOUT = 600          # seconds
 CLI_BUDGET_USD = 2.0       # only bites when Claude Code is billed per use
-CLI_PLACES = ["/opt/homebrew/bin/claude", "/usr/local/bin/claude", "~/.local/bin/claude", "~/.claude/local/claude"]
+CLI_PLACES = ["/opt/homebrew/bin/claude", "/usr/local/bin/claude", "~/.local/bin/claude", "~/.claude/local/claude",
+              "~/.local/bin/claude.exe", "~/AppData/Roaming/npm/claude.cmd", "~/.claude/local/claude.exe"]  # last three: Windows
 
 SYSTEM = """You help a live-show music director fix a song's metronome (click track) in Prism.
 
@@ -190,7 +191,7 @@ def save_key(key: str) -> None:
     temporary = KEY_FILE.with_suffix(".tmp")
     temporary.write_text(key, encoding="utf-8")
     os.chmod(temporary, 0o600)
-    temporary.replace(KEY_FILE)
+    fsutil.replace(temporary, KEY_FILE)
 
 
 def forget_key() -> None:

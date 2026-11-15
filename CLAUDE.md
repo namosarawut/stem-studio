@@ -13,13 +13,17 @@ Improvement backlog and known gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Run
 
-- `./start.command` (double-click on macOS): finds Python 3.10–3.12, (re)builds `.venv` from
+- `./start.command` (double-click on macOS) or `start.bat` (Windows; installs CUDA PyTorch when `nvidia-smi` exists): finds Python 3.10–3.12, (re)builds `.venv` from
   `requirements.txt` if imports fail, serves on `127.0.0.1:8765` (`STEM_STUDIO_PORT` overrides), opens
   the browser. First run downloads models into `models/` (~1.3 GB, `TORCH_HOME`).
 - Manual: `.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --log-level warning`
 - Code changes in `app/` need a server restart; `static/` is served with `Cache-Control: no-cache`
   (a reload is enough). Restart the main server only when `/api/jobs` shows nothing queued/running.
-- macOS only in practice: Demucs uses Apple GPU (MPS) and cues use the `say` command.
+- macOS and Windows. Demucs runs on MPS (Mac), CUDA (NVIDIA) or CPU. Cues use `say` on macOS and
+  `app/winspeech.ps1` (WinRT/SAPI voices via Windows PowerShell 5.1) on Windows. A cue whose voice is not
+  installed falls back to an installed voice of the same language (`cues.voice_info`); Windows voice ids are
+  `win-<lang>-<name>`. `.github/workflows/windows.yml` runs `tools/ci/smoke_test.py` on Windows on every push;
+  run the same script locally after touching file swaps, cues or the job pipeline.
 - Nothing leaves the machine except the opt-in "ask Claude" button (`app/assistant.py`), which sends only
   numbers (beat and hit times, section names). Keep it that way and keep the dialog text accurate.
 
@@ -43,7 +47,8 @@ Improvement backlog and known gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
 | `app/analyzer.py` | Tempo/beat tracking, key, chords, sections, loops, loudness, per-stem stats; `ANALYSIS_VERSION = 2` |
 | `app/tempo.py` | Piecewise tempo map (steady / accel / ritard sections) + summary |
 | `app/project.py` | Non-destructive edit model: click grid, cuts, custom tracks, sounds added from files, lead-in, merged view for the UI |
-| `app/cues.py` | Cue library (135 phrases, 6 categories), count-in styles, `say` TTS cache, cue track render |
+| `app/cues.py` | Cue library (135 phrases, 6 categories), count-in styles, TTS cache (`say` / `winspeech.ps1`), cue track render |
+| `app/fsutil.py` | File swaps that also work on Windows (retry while a file is open, `.stale` marker for caches) |
 | `app/metronome.py` | `write_wav_atomic`, click track render |
 | `app/midi.py` | MIDI tempo map export (tempo per beat, time signatures, section markers, click notes) |
 | `app/assistant.py` | Optional "ask Claude" (opt-in, sends only beat/hit times and section names): Claude Code CLI (`claude -p`, built-in tools off) or the Claude API, editing a copy of the metronome through 5 tools |
@@ -51,7 +56,7 @@ Improvement backlog and known gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
 | `app/gridfix.py` | Metronome repair from the drum stem ("ซ่อมจุดที่เพี้ยน"): rebuilds spots that slipped off the drums |
 | `app/warp.py` | Tempo lock: beat time map, kink filtering, WSOLA stretch with one shared plan for all tracks |
 | `app/trash.py` | Deletes go to `data/trash/<entry>/` (item + trash.json) for 7 days; restore, purge on startup and on listing |
-| `app/monitor.py` | Per-job resource report (CPU, RAM, GPU via `ioreg`, disk) |
+| `app/monitor.py` | Per-job resource report (CPU, RAM, GPU via `ioreg` or `nvidia-smi`, disk) |
 | `app/playlists.py` | Setlists, imported files (`data/library`), server-rendered project mixes for playback |
 | `static/app.js` | Router, home, processing view, studio (Mixer class, timeline canvas, metronome editor, cues, cuts, lead-in, routing, export) |
 | `static/show.js` | Show mode for the setlist player: full screen, footswitch keys, Web MIDI learn (`prism-show-midi` in localStorage), screen lock, wake lock, leave guard. State object is `stage` (app.js already has `show()`) |
@@ -85,6 +90,8 @@ Improvement backlog and known gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
 - **Every served track has the same length** (`timeline_samples`), so exports line up at 0 in a DAW.
 - **Atomic writes everywhere** (`write_wav_atomic`, `project._swap_dir`, `playlists.write_json_atomic`):
   a browser may be downloading a file while it is rebuilt.
+  Swap with `fsutil.replace`, never `os.replace`/`Path.replace` directly: Windows refuses to replace an open
+  file, so it retries there. Drop caches with `fsutil.discard` (+ `fsutil.is_current`), not `unlink`.
 - **Analysis upgrades** re-run analysis when `version < ANALYSIS_VERSION` and keep edits.
 - **Beat tracking:** a per-song hop that divides the beat exactly (librosa rounds frames per beat);
   a tempo curve is accepted only if it lands ≥1.5× better on hits; beats are snapped to attacks.

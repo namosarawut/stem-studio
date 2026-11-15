@@ -1,8 +1,9 @@
 """Measures what a job costs the machine, stage by stage.
 
-CPU time, RAM and Metal memory belong to this process. GPU utilization comes from
-`ioreg`, which only reports the whole machine (the window server and browsers use the
-GPU too), so a baseline taken before the job starts is reported beside it.
+CPU time, RAM and GPU memory belong to this process. GPU utilization comes from
+`ioreg` on macOS and `nvidia-smi` on an NVIDIA card (Windows or Linux), which only report
+the whole machine (the window server and browsers use the GPU too), so a baseline taken
+before the job starts is reported beside it.
 """
 from __future__ import annotations
 
@@ -10,6 +11,7 @@ import platform
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -25,12 +27,26 @@ BASELINE_SAMPLES = 3
 
 
 def _gpu_utilization() -> int | None:
+    if sys.platform != "darwin":
+        return _nvidia_utilization()
     try:
         output = subprocess.run(["ioreg", "-r", "-d", "1", "-c", "IOAccelerator"], capture_output=True, text=True, timeout=3).stdout
     except (OSError, subprocess.SubprocessError):
         return None
     match = re.search(r'"Device Utilization %"\s*=\s*(\d+)', output)
     return int(match.group(1)) if match else None
+
+
+def _nvidia_utilization() -> int | None:
+    if not shutil.which("nvidia-smi"):
+        return None
+    try:
+        output = subprocess.run(["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
+                                capture_output=True, text=True, timeout=3).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    match = re.search(r"\d+", output)
+    return int(match.group(0)) if match else None
 
 
 def _sysctl(name: str) -> str | None:

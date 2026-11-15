@@ -14,6 +14,8 @@ import time
 import uuid
 from pathlib import Path
 
+from . import fsutil
+
 KEEP_DAYS = 7
 ENTRY_ID = re.compile(r"^[a-z]+-[0-9a-f]{6,16}-[0-9a-f]{8}$")
 KINDS = ("job", "import", "playlist")
@@ -41,7 +43,7 @@ def move_in(trash: Path, kind: str, item_id: str, source: Path, title: str, extr
         "size_mb": round(_size(source) / 1e6, 1), "file": source.name if source.is_file() else None, **(extra or {}),
     }
     (folder / "trash.json").write_text(json.dumps(info, ensure_ascii=False), encoding="utf-8")
-    source.replace(folder / "item")  # a rename on the same disk: instant and atomic
+    fsutil.replace(source, folder / "item")  # a rename on the same disk: instant and atomic
     return info
 
 
@@ -70,7 +72,7 @@ def take_out(trash: Path, entry_id: str, target: Path) -> dict:
     if target.exists():
         raise TrashError("มีรายการชื่อเดียวกันอยู่แล้ว กู้คืนทับไม่ได้")
     target.parent.mkdir(parents=True, exist_ok=True)
-    (folder / "item").replace(target)
+    fsutil.replace(folder / "item", target)
     shutil.rmtree(folder, ignore_errors=True)
     return info
 

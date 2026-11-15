@@ -1,13 +1,15 @@
-"""Spoken guide cues: a library of phrases, macOS text-to-speech, and the cue track renderer.
+"""Spoken guide cues: a library of phrases, system text-to-speech, and the cue track renderer.
 
-Speech comes from the system `say` command, so it works offline and nothing leaves the
-machine. Each phrase is rendered once per voice and kept in models/cues/.
+Speech comes from the operating system, so it works offline and nothing leaves the
+machine: the `say` command on macOS, Windows' own voices through winspeech.ps1 on Windows.
+Each phrase is rendered once per voice and kept in models/cues/.
 """
 from __future__ import annotations
 
 import hashlib
 import re
 import subprocess
+import sys
 import tempfile
 import threading
 import uuid
@@ -18,6 +20,7 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
+from . import fsutil
 from .metronome import write_wav_atomic
 
 CUES = "cues"
@@ -31,7 +34,13 @@ PRE_ROLL_SECONDS = 0.004
 FADE_SECONDS = 0.008
 SAY_TIMEOUT = 20
 
-# Voices offered when installed. Only these names are ever passed to `say`.
+WINDOWS = sys.platform == "win32"
+WIN_SPEECH = Path(__file__).with_name("winspeech.ps1")
+WIN_RATE_WPM = 180  # `say` rates are words per minute; Windows rates are a multiple of normal speed
+LANG_TH = {"th": "ไทย", "en": "อังกฤษ"}
+GENDER_TH = {"female": "หญิง", "male": "ชาย"}
+
+# macOS voices offered when installed. Only these names are ever passed to `say`.
 VOICE_CHOICES = [
     {"id": "kanya", "say": "Kanya", "lang": "th", "label": "กันยา · ไทย (หญิง)"},
     {"id": "samantha", "say": "Samantha", "lang": "en", "label": "Samantha · อังกฤษ US (หญิง)"},
@@ -123,20 +132,68 @@ class CueError(ValueError):
     pass
 
 
+def _powershell(*args: str, timeout: float) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(WIN_SPEECH), *args],
+        capture_output=True, timeout=timeout, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+
+
+def _windows_voices() -> list[dict]:
+    """Thai and English voices Windows has, newest engine first, one per name."""
+    try:
+        listing = _powershell("-Mode", "list", timeout=30).stdout.decode("utf-8", "replace")
+    except (OSError, subprocess.SubprocessError):
+        return []
+    found: dict[str, dict] = {}
+    for line in listing.splitlines():
+        parts = line.strip().split("\t")
+        if len(parts) < 4:
+            continue
+        engine, engine_id, name, language = parts[:4]
+        lang = language.split("-")[0].lower()
+        if lang not in LANG_TH:
+            continue
+        short = re.sub(r"^Microsoft\s+|\s+(Desktop|Mobile)$|\s+-\s+.*$", "", name).strip() or name
+        voice_id = f"win-{lang}-" + (re.sub(r"[^a-z0-9]+", "-", short.lower()).strip("-") or "voice")
+        if voice_id in found:
+            continue  # the same voice through the older engine
+        gender = GENDER_TH.get(parts[4].strip().lower(), "") if len(parts) > 4 else ""
+        found[voice_id] = {
+            "id": voice_id, "lang": lang, "engine": f"{engine}|{engine_id}",
+            "label": f"{short} · {LANG_TH[lang]}" + (f" ({gender})" if gender else ""),
+        }
+    return sorted(found.values(), key=lambda v: (v["lang"] != "th", v["label"]))
+
+
 @lru_cache(maxsize=1)
-def available_voices() -> list[dict]:
+def _installed() -> tuple[dict, ...]:
+    if WINDOWS:
+        return tuple(_windows_voices())
     try:
         listing = subprocess.run(["say", "-v", "?"], capture_output=True, text=True, timeout=10).stdout
     except (OSError, subprocess.SubprocessError):
-        return []
-    installed = {re.split(r"\s{2,}", line.strip())[0] for line in listing.splitlines() if line.strip()}
-    return [{k: v for k, v in voice.items() if k != "say"} for voice in VOICE_CHOICES if voice["say"] in installed]
+        return ()
+    names = {re.split(r"\s{2,}", line.strip())[0] for line in listing.splitlines() if line.strip()}
+    return tuple(voice for voice in VOICE_CHOICES if voice["say"] in names)
+
+
+def available_voices() -> list[dict]:
+    return [{k: v for k, v in voice.items() if k not in ("say", "engine")} for voice in _installed()]
 
 
 def voice_info(voice_id: str) -> dict:
-    voice = next((v for v in VOICE_CHOICES if v["id"] == voice_id), None)
-    if voice is None or voice_id not in {v["id"] for v in available_voices()}:
-        raise CueError("ไม่พบเสียงอ่านนี้ในเครื่อง")
+    """The installed voice for this id. A cue saved with a voice this machine does not have
+    (a song made on a Mac opened on Windows, or the other way) uses an installed voice in
+    the same language, so it still plays; the saved choice is kept for the other machine."""
+    installed = _installed()
+    voice = next((v for v in installed if v["id"] == voice_id), None)
+    if voice is None:
+        known = next((v for v in VOICE_CHOICES if v["id"] == voice_id), None)
+        lang = known["lang"] if known else voice_id.split("-")[1] if voice_id.startswith("win-") and voice_id.count("-") >= 2 else None
+        voice = next((v for v in installed if v["lang"] == lang), None) or (installed[0] if installed else None)
+    if voice is None:
+        raise CueError("ไม่พบเสียงอ่านในเครื่องนี้")
     return voice
 
 
@@ -179,10 +236,10 @@ def sample_path(cache: Path, voice_id: str, text: str, rate: int) -> Path:
 
 
 def speak(cache: Path, voice_id: str, text: str, rate: int, sample_rate: int) -> Path:
-    """Render one phrase with `say`, once. Concurrent requests for the same phrase wait."""
+    """Render one phrase with the system voice, once. Concurrent requests for the same phrase wait."""
     voice = voice_info(voice_id)
     text = clean_text(text)
-    path = sample_path(cache, voice_id, text, rate)
+    path = sample_path(cache, voice["id"], text, rate)
     with _sample_lock:
         if path.exists():
             return path
@@ -201,20 +258,27 @@ def speak(cache: Path, voice_id: str, text: str, rate: int, sample_rate: int) ->
             text_file = Path(folder) / "text.txt"
             text_file.write_text(text, encoding="utf-8")
             raw = Path(folder) / "raw.wav"
-            result = subprocess.run(
-                ["say", "-v", voice["say"], "-r", str(rate), "-f", str(text_file), "-o", str(raw),
-                 "--file-format=WAVE", f"--data-format=LEI16@{sample_rate}"],
-                capture_output=True, timeout=SAY_TIMEOUT,
-            )
-            if result.returncode != 0 or not raw.exists():
+            if "engine" in voice:
+                result = _powershell("-Mode", "speak", "-Voice", voice["engine"], "-Rate", f"{rate / WIN_RATE_WPM:.2f}",
+                                     "-TextFile", str(text_file), "-Out", str(raw), timeout=SAY_TIMEOUT)
+            else:
+                result = subprocess.run(
+                    ["say", "-v", voice["say"], "-r", str(rate), "-f", str(text_file), "-o", str(raw),
+                     "--file-format=WAVE", f"--data-format=LEI16@{sample_rate}"],
+                    capture_output=True, timeout=SAY_TIMEOUT,
+                )
+            if result.returncode != 0 or not raw.exists() or raw.stat().st_size < 64:
                 raise CueError("สร้างเสียงพูดไม่สำเร็จ")
-            audio, _ = sf.read(raw, dtype="float32")
+            audio, raw_rate = sf.read(raw, dtype="float32")
             if audio.ndim > 1:
                 audio = audio.mean(axis=1)
+            if raw_rate != sample_rate:  # Windows voices speak at 16 or 22.05 kHz
+                import librosa
+                audio = librosa.resample(audio, orig_sr=raw_rate, target_sr=sample_rate).astype(np.float32)
             trimmed = _trim(audio, sample_rate)
             temporary = path.with_suffix(f".{uuid.uuid4().hex[:6]}.tmp")
             sf.write(temporary, trimmed, sample_rate, subtype="FLOAT", format="WAV")
-            temporary.replace(path)
+            fsutil.replace(temporary, path)
         return path
     finally:
         with _sample_lock:

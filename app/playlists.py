@@ -19,6 +19,7 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
+from . import fsutil
 from .metronome import write_wav_atomic
 
 ITEM_ID = re.compile(r"^[0-9a-f]{6,16}$")
@@ -43,7 +44,7 @@ def write_json_atomic(path: Path, data: dict) -> None:
     temporary = path.with_name(f".{path.stem}.{uuid.uuid4().hex[:8]}.tmp")
     try:
         temporary.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-        os.replace(temporary, path)
+        fsutil.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -81,7 +82,7 @@ def import_file(folder: Path, source: Path, title: str, filename: str, ffmpeg: s
         temporary.unlink(missing_ok=True)
         detail = result.stderr.decode("utf-8", "replace").strip().splitlines()
         raise PlaylistError(f"อ่านไฟล์เสียงไม่ได้: {detail[-1] if detail else 'ไม่พบสัญญาณเสียง'}")
-    os.replace(temporary, folder / "audio.wav")
+    fsutil.replace(temporary, folder / "audio.wav")
     info = sf.info(folder / "audio.wav")
     meta = {
         "id": folder.name, "title": _clean_name(title, "เพลง"), "filename": filename,
@@ -269,6 +270,6 @@ def render_mix(sources: dict[str, Path], mix: dict, out_dir: Path, peaks_fn) -> 
         # Trim old renders of this song, least recently used first.
         renders = sorted(out_dir.glob("*.wav"), key=lambda p: p.stat().st_mtime, reverse=True)
         for old in renders[KEEP_RENDERS:]:
-            old.unlink(missing_ok=True)
-            old.with_suffix(".json").unlink(missing_ok=True)
+            if fsutil.try_unlink(old):  # Windows keeps one that is still playing
+                fsutil.try_unlink(old.with_suffix(".json"))
         return meta

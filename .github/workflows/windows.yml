@@ -1,0 +1,39 @@
+# Runs Prism on a real Windows machine: install as start.bat does without an NVIDIA card
+# (CPU PyTorch), then tools/ci/smoke_test.py separates a short generated clip and checks
+# the Windows-specific parts (file swaps while a download is open, cue speech, ZIP).
+name: windows
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m venv .venv
+          .venv\Scripts\python -m pip install --upgrade pip
+          .venv\Scripts\python -m pip install -r requirements.txt
+
+      - name: Same import check as start.bat
+        run: .venv\Scripts\python -c "import demucs, fastapi, librosa, audio_separator, psutil, anthropic"
+
+      - name: Voices Windows offers to cues
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File app\winspeech.ps1 -Mode list
+
+      - name: Smoke test
+        env:
+          PYTHONIOENCODING: utf-8
+        run: .venv\Scripts\python tools\ci\smoke_test.py

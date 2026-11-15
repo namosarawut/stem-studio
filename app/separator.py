@@ -122,11 +122,17 @@ def _ffmpeg_on_path() -> None:
     a versioned name, so expose it under that name inside the venv, not system-wide."""
     folder = Path(sys.prefix) / "ffmpeg-bin"
     folder.mkdir(exist_ok=True)
-    link = folder / "ffmpeg"
     target = imageio_ffmpeg.get_ffmpeg_exe()
-    if not link.exists() or os.path.realpath(link) != os.path.realpath(target):
-        link.unlink(missing_ok=True)
-        link.symlink_to(target)
+    if sys.platform == "win32":
+        # Symlinks need admin rights on Windows, and the command must end in .exe: copy it.
+        copy = folder / "ffmpeg.exe"
+        if not copy.exists() or copy.stat().st_size != os.path.getsize(target):
+            shutil.copy2(target, copy)
+    else:
+        link = folder / "ffmpeg"
+        if not link.exists() or os.path.realpath(link) != os.path.realpath(target):
+            link.unlink(missing_ok=True)
+            link.symlink_to(target)
     if str(folder) not in os.environ["PATH"].split(os.pathsep):
         os.environ["PATH"] = f"{folder}{os.pathsep}{os.environ['PATH']}"
 
