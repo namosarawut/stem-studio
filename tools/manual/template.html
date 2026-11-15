@@ -1,0 +1,642 @@
+<meta charset="utf-8">
+<title>คู่มือ Prism</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: a phase rail on the left, one reading column, figures wider than the text.
+     Palette borrows Prism's own stem colours so the manual looks like the app it explains. */
+  :root {
+    --bg: #f6f6f3; --surface: #ffffff; --raise: #eeeee9; --line: #dcdcd4;
+    --fg: #17181c; --muted: #5d5f68; --faint: #8b8d96;
+    --teal: #138f78; --amber: #a86c00; --red: #c63d31; --violet: #5a55d6;
+    --shot-bg: #0c0d10;
+    --sans: "IBM Plex Sans Thai", "Thonburi", "Noto Sans Thai", -apple-system, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0c0d10; --surface: #14151a; --raise: #1b1d23; --line: #2a2c36;
+      --fg: #eeece6; --muted: #a2a4b0; --faint: #70727e;
+      --teal: #38d6b4; --amber: #f5b83d; --red: #ff6b5e; --violet: #8f8cff;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c0d10; --surface: #14151a; --raise: #1b1d23; --line: #2a2c36;
+    --fg: #eeece6; --muted: #a2a4b0; --faint: #70727e;
+    --teal: #38d6b4; --amber: #f5b83d; --red: #ff6b5e; --violet: #8f8cff;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--fg); font: 400 16.5px/1.75 var(--sans); }
+  a { color: var(--teal); }
+  .wrap {
+    display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 48px; max-width: 1180px; margin: 0 auto;
+    padding-block: 40px 96px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  nav.rail { position: sticky; top: calc(24px + env(safe-area-inset-top, 0px)); align-self: start; font-size: 14px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; margin-bottom: 24px; }
+  .brand i { display: grid; gap: 3px; width: 18px; }
+  .brand i b { display: block; height: 3px; border-radius: 2px; }
+  .phase { display: block; padding: 10px 12px; border-radius: 10px; color: var(--muted); text-decoration: none; border: 1px solid transparent; }
+  .phase strong { display: block; color: var(--fg); font-weight: 600; }
+  .phase small { font: 500 11.5px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+  .phase.on { background: var(--surface); border-color: var(--line); }
+  .phase.soon strong { color: var(--faint); }
+  .rail ol { margin: 6px 0 14px; padding-left: 22px; color: var(--muted); }
+  .rail ol a { color: inherit; text-decoration: none; }
+  .rail ol a:hover { color: var(--fg); }
+  main { min-width: 0; max-width: 760px; }
+  header.intro h1 { font-size: clamp(32px, 5vw, 48px); line-height: 1.15; margin: 0 0 12px; text-wrap: balance; }
+  header.intro p { color: var(--muted); margin: 0 0 8px; max-width: 62ch; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 0; padding: 0; list-style: none; }
+  .chips li { font: 500 13px var(--mono); padding: 4px 10px; border-radius: 999px; background: var(--raise); color: var(--muted); }
+  section { margin-top: 64px; }
+  .eyebrow { font: 500 12px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--teal); margin: 0; }
+  h2 { font-size: 30px; line-height: 1.25; margin: 4px 0 12px; text-wrap: balance; }
+  h3 { font-size: 21px; margin: 40px 0 8px; }
+  p, li { max-width: 66ch; }
+  .steps { counter-reset: step; list-style: none; padding: 0; margin: 16px 0; display: grid; gap: 12px; }
+  .steps > li { counter-increment: step; position: relative; padding-left: 44px; }
+  .steps > li::before {
+    content: counter(step); position: absolute; left: 0; top: 2px; width: 30px; height: 30px; border-radius: 50%;
+    display: grid; place-items: center; background: var(--fg); color: var(--bg); font: 600 14px var(--mono);
+  }
+  kbd { font: 500 13px var(--mono); padding: 1px 7px; border-radius: 6px; border: 1px solid var(--line); border-bottom-width: 2px; background: var(--surface); white-space: nowrap; }
+  code { font: 500 14px var(--mono); padding: 1px 6px; border-radius: 6px; background: var(--raise); }
+  .ui { font-weight: 600; white-space: nowrap; }
+  figure { margin: 22px 0 26px; }
+  .shot { position: relative; }
+  .shot img { display: block; width: 100%; height: auto; border-radius: 14px; background: var(--shot-bg); border: 1px solid var(--line); }
+  .badge { position: absolute; right: 10px; top: 10px; font: 500 11.5px var(--mono); padding: 3px 9px; border-radius: 999px; background: rgba(12,13,16,.8); color: #eeece6; }
+  .wide { margin-right: calc(-1 * min(180px, max(0px, (100vw - 1180px) / 2 + 120px))); }
+  .mark {
+    position: absolute; width: 28px; height: 28px; margin: -14px 0 0 -14px; border-radius: 50%;
+    display: grid; place-items: center; font: 600 14px var(--mono); color: #111;
+    background: #f5b83d; box-shadow: 0 0 0 3px rgba(12, 13, 16, .85), 0 4px 14px rgba(0, 0, 0, .5);
+  }
+  figcaption { margin-top: 10px; color: var(--muted); font-size: 14.5px; }
+  .legend { list-style: none; padding: 0; margin: 14px 0 0; display: grid; gap: 8px; }
+  .legend li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; align-items: start; }
+  .legend li > b { width: 24px; height: 24px; margin-top: 3px; border-radius: 50%; display: grid; place-items: center; font: 600 12.5px var(--mono); color: #111; background: #f5b83d; }
+  .tip, .warn { margin: 18px 0; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); }
+  .tip { border-left: 4px solid var(--teal); }
+  .warn { border-left: 4px solid var(--amber); }
+  .tip strong, .warn strong { display: block; margin-bottom: 2px; }
+  .tablewrap { overflow-x: auto; margin: 16px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; }
+  td.num { font-family: var(--mono); white-space: nowrap; }
+  .pair { display: grid; gap: 12px; }
+  .pair figure { margin: 0; }
+  .pair figcaption { margin-top: 6px; }
+  .next { margin-top: 72px; padding: 20px 22px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); }
+  .next p { margin: 4px 0 0; color: var(--muted); }
+  @media (max-width: 900px) {
+    .wrap { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+    nav.rail { position: static; }
+    .rail ol { display: none; }
+    .phases { display: flex; gap: 8px; overflow-x: auto; }
+    .phase { flex: none; }
+    .wide { margin-right: 0; }
+    .mark { width: 22px; height: 22px; margin: -11px 0 0 -11px; font-size: 12px; }
+  }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  html { scroll-behavior: smooth; }
+</style>
+
+<div class="wrap">
+  <nav class="rail" aria-label="สารบัญ">
+    <div class="brand"><i><b style="background:#ff6b5e"></b><b style="background:#f5b83d"></b><b style="background:#38d6b4"></b><b style="background:#8f8cff"></b></i>คู่มือ Prism</div>
+    <div class="phases">
+      <a class="phase on" href="#phase-1"><small>Phase 1</small><strong>เริ่มต้นใช้งาน</strong></a>
+      <ol>
+        <li><a href="#install">ติดตั้งและเปิด</a></li>
+        <li><a href="#home">หน้าแรก</a></li>
+        <li><a href="#import">นำเข้าเพลง</a></li>
+        <li><a href="#processing">รอแยกเสียง</a></li>
+        <li><a href="#studio">รู้จักหน้าเพลง</a></li>
+        <li><a href="#export">ส่งออกเบื้องต้น</a></li>
+      </ol>
+      <a class="phase on" href="#phase-2"><small>Phase 2</small><strong>เมโทรนอมและความเร็ว</strong></a>
+      <ol>
+        <li><a href="#metro-which">เลือกวิธีให้ตรงเพลง</a></li>
+        <li><a href="#metro-listen">ฟังเมโทรนอม</a></li>
+        <li><a href="#metro-edit">แก้เมโทรนอมเอง</a></li>
+        <li><a href="#metro-repair">ซ่อมจุดที่เพี้ยน</a></li>
+        <li><a href="#steady">ทำคลิกให้นิ่ง</a></li>
+        <li><a href="#lock">ล็อกความเร็วเอง</a></li>
+        <li><a href="#claude">ให้ Claude ช่วยดู</a></li>
+        <li><a href="#tempomap">Tempo map สำหรับ DAW</a></li>
+      </ol>
+      <a class="phase on" href="#phase-3"><small>Phase 3</small><strong>cue · ช่วงนับ · แทร็กเพิ่ม</strong></a>
+      <ol>
+        <li><a href="#cue-auto">cue อัตโนมัติ</a></li>
+        <li><a href="#cue-add">เพิ่ม cue เอง</a></li>
+        <li><a href="#cue-count">เสียงนับเข้า</a></li>
+        <li><a href="#cue-edit">ย้ายและแก้ cue</a></li>
+        <li><a href="#lead">ช่วงนับก่อนเพลง</a></li>
+        <li><a href="#cut">ตัดช่วงเป็นแทร็กใหม่</a></li>
+        <li><a href="#add">เพิ่มเสียงจากไฟล์</a></li>
+        <li><a href="#export-all">ส่งออกให้ครบ</a></li>
+      </ol>
+      <a class="phase on" href="#phase-4"><small>Phase 4</small><strong>เพลย์ลิสต์และโหมดโชว์</strong></a>
+      <ol>
+        <li><a href="#pl-make">สร้างเพลย์ลิสต์</a></li>
+        <li><a href="#pl-page">หน้าเพลย์ลิสต์</a></li>
+        <li><a href="#pl-detail">ตั้งค่าแต่ละเพลง</a></li>
+        <li><a href="#show-mode">โหมดโชว์</a></li>
+        <li><a href="#show-pedal">แป้นเหยียบและ MIDI</a></li>
+        <li><a href="#trash-help">ถังขยะ</a></li>
+        <li><a href="#before-show">เช็กลิสต์ก่อนขึ้นเวที</a></li>
+      </ol>
+    </div>
+  </nav>
+
+  <main>
+    <header class="intro">
+      <h1>คู่มือ Prism</h1>
+      <p>Prism คือโปรแกรมเตรียม data สำหรับเล่นสด ใช้ AI แยกเพลงเป็นแทร็ก (ร้อง กลอง เบส กีตาร์ เปียโน อื่นๆ) วิเคราะห์จังหวะ คีย์ คอร์ด และท่อนเพลง ทำแทร็กคลิกที่แก้ได้ละเอียด ใส่เสียงบอกท่อน แล้วส่งออกไปใช้ใน DAW หรือเล่นบนเวทีด้วยเพลย์ลิสต์ของ Prism เอง</p>
+      <p>ทุกอย่างทำงานในเครื่อง Mac ของคุณ ไฟล์เพลงไม่ถูกส่งออกไปไหน</p>
+      <ul class="chips"><li>macOS · Apple Silicon</li><li>ใช้ผ่านเบราว์เซอร์</li><li>ภาพในคู่มือใช้เพลงตัวอย่าง</li></ul>
+    </header>
+
+    <section id="phase-1">
+      <p class="eyebrow">Phase 1</p>
+      <h2>เริ่มต้นใช้งาน: จากไฟล์เพลงถึงหน้าเพลง</h2>
+      <p>ส่วนนี้พาตั้งแต่เปิดโปรแกรมครั้งแรก นำเข้าเพลง รอ AI แยกเสียง จนถึงรู้ว่าแต่ละส่วนของหน้าเพลงทำอะไร เมื่อจบ phase นี้คุณจะได้ stem ของเพลงแรกและส่งออกไปใช้ได้</p>
+
+      <h3 id="install">1. ติดตั้งและเปิด Prism</h3>
+      <p>สิ่งที่ต้องมี: Mac ชิป Apple (M1 ขึ้นไป), Python 3.10–3.12 และอินเทอร์เน็ตตอนเปิดครั้งแรก</p>
+      <ol class="steps">
+        <li>ถ้ายังไม่มี Python ให้ติดตั้งก่อน วิธีที่ง่ายคือใช้ Homebrew พิมพ์ใน Terminal ว่า <code>brew install python@3.12</code></li>
+        <li>ดาวน์โหลดโฟลเดอร์ Prism มาไว้ในเครื่อง แล้ว<strong>ดับเบิลคลิก <code>start.command</code></strong></li>
+        <li>ครั้งแรกจะเปิดหน้าต่าง Terminal และติดตั้งของที่ต้องใช้เอง ใช้เวลาหลายนาที เสร็จแล้วเบราว์เซอร์จะเปิดหน้า Prism ให้ที่ <code>http://127.0.0.1:8765</code></li>
+        <li>ครั้งต่อไปดับเบิลคลิก <code>start.command</code> ได้เลย เปิดเร็วกว่ามาก</li>
+      </ol>
+      <div class="warn"><strong>หน้าต่าง Terminal คือตัวโปรแกรม</strong>ปิดหน้าต่างนั้นเมื่อไหร่ Prism จะหยุดทำงาน ถ้าเปิดเบราว์เซอร์แล้วขึ้นว่าเชื่อมต่อไม่ได้ ให้ดับเบิลคลิก <code>start.command</code> ใหม่</div>
+      <div class="tip"><strong>ถ้า macOS ไม่ยอมเปิดไฟล์</strong>คลิกขวาที่ <code>start.command</code> แล้วเลือก "เปิด" (Open) หนึ่งครั้ง ครั้งต่อไปดับเบิลคลิกได้ตามปกติ</div>
+      <div class="tip"><strong>เพลงแรกจะช้ากว่าปกติ</strong>ตอนแยกเพลงครั้งแรก Prism ต้องดาวน์โหลดโมเดล AI ราว 1.3 GB ครั้งเดียว หลังจากนั้นใช้งานได้โดยไม่ต้องต่อเน็ต</div>
+
+      <h3 id="home">2. หน้าแรก</h3>
+      <p>หน้าแรกคือที่นำเข้าเพลงใหม่ และเปิดเพลงที่แยกไว้แล้ว</p>
+      {{figure:home:wide:หน้าแรกของ Prism}}
+      <ol class="legend">
+        <li><b>1</b><span><strong>ช่องวางไฟล์</strong> ลากไฟล์เพลงมาวาง หรือคลิกเพื่อเลือกไฟล์ รองรับ MP3, WAV, FLAC, M4A, AAC, OGG, AIFF และไฟล์วิดีโอ MP4/MOV (ใช้เฉพาะเสียง) ขนาดไม่เกิน 1 GB</span></li>
+        <li><b>2</b><span><strong>เลือกโมเดล</strong> เลือก<em>ก่อน</em>วางไฟล์ (ดูตารางด้านล่าง)</span></li>
+        <li><b>3</b><span><strong>เพลงของคุณ</strong> คลิกชื่อเพลงเพื่อเปิด ช่องค้นหาด้านบนค้นได้ทั้งชื่อเพลง คีย์ และ BPM ปุ่ม "ลบ" จะย้ายเพลงไปถังขยะ (กู้คืนได้ 7 วัน ดูใน Phase 4)</span></li>
+        <li><b>4</b><span><strong>เพลย์ลิสต์</strong> ไปหน้าเพลย์ลิสต์สำหรับเล่นต่อกันบนเวที (Phase 4)</span></li>
+      </ol>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>โมเดล</th><th>ได้แทร็กอะไร</th><th>ความเร็ว</th><th>ใช้เมื่อ</th></tr></thead>
+          <tbody>
+            <tr><td><strong>6 แทร็ก</strong></td><td>ร้อง กลอง เบส กีตาร์ เปียโน อื่นๆ</td><td class="num">เร็ว</td><td>ค่าเริ่มต้น เหมาะกับงาน data ส่วนใหญ่ (แทร็กเปียโนอาจมีเสียงอื่นปน)</td></tr>
+            <tr><td><strong>มาตรฐาน</strong></td><td>ร้อง กลอง เบส อื่นๆ</td><td class="num">เร็ว</td><td>ไม่ต้องแยกกีตาร์กับเปียโน</td></tr>
+            <tr><td><strong>คุณภาพสูงสุด</strong></td><td>ร้อง กลอง เบส อื่นๆ</td><td class="num">ช้าราว 4 เท่า</td><td>อยากได้เสียงสะอาดที่สุด (อยู่ใน "ตัวเลือกเพิ่มเติม")</td></tr>
+            <tr><td><strong>เสียงร้องหลัก + คอรัส</strong></td><td>ร้องนำ คอรัส กลอง เบส อื่นๆ</td><td class="num">ช้าราว 4 เท่า</td><td>ต้องแยกเสียงร้องนำออกจากคอรัส ครั้งแรกโหลดโมเดลเพิ่ม 913 MB</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 id="import">3. นำเข้าเพลง</h3>
+      <ol class="steps">
+        <li>เลือกโมเดลที่หน้าแรก</li>
+        <li>ลากไฟล์เพลงมาวางในช่องวางไฟล์ (หรือคลิกแล้วเลือกไฟล์)</li>
+        <li>หน้าต่าง<strong>เลือกช่วง</strong>จะขึ้นมา ถ้าจะใช้ทั้งเพลง กด <span class="ui">แยก stem</span> ได้เลย ถ้าอยากตัดหัวหรือท้ายทิ้ง (เช่นเสียงพูดก่อนเพลงในคลิปแสดงสด) ทำตามขั้นถัดไป</li>
+        <li>ลากเส้นสีเขียวด้านซ้ายไปจุดที่อยากให้เริ่ม และเส้นด้านขวาไปจุดที่อยากให้จบ ส่วนที่ถูกตัดจะมืดลง แล้วกด <span class="ui">แยก stem เฉพาะช่วงนี้</span></li>
+      </ol>
+      {{figure:trim::หน้าต่างเลือกช่วงก่อนแยก}}
+      <ol class="legend">
+        <li><b>1</b><span><strong>เส้นเริ่ม</strong> ลากไปทางขวาเพื่อตัดหัวเพลง</span></li>
+        <li><b>2</b><span><strong>เส้นจบ</strong> ลากไปทางซ้ายเพื่อตัดท้ายเพลง</span></li>
+        <li><b>3</b><span><strong>ฟัง</strong> เล่นช่วงที่เลือก คลิกบนคลื่นเสียงตรงไหนก็ได้เพื่อฟังจากตรงนั้น</span></li>
+        <li><b>4</b><span><strong>พิมพ์เวลา</strong> ใส่จุดเริ่มหรือจุดจบเองได้ละเอียด เช่น <code>0:12.5</code> ปุ่ม <span class="ui">เริ่มตรงนี้</span> / <span class="ui">จบตรงนี้</span> ตั้งจุดตรงที่กำลังฟังอยู่ ส่วน <span class="ui">ใช้ทั้งเพลง</span> ล้างการตัด</span></li>
+        <li><b>5</b><span><strong>แยก stem</strong> เริ่มแยกเสียง (ถ้าตัดช่วงไว้ ปุ่มจะเปลี่ยนเป็น "แยก stem เฉพาะช่วงนี้")</span></li>
+      </ol>
+      {{anim:trim-drag:ลากเส้นเริ่มไปตัดหัวเพลงทิ้ง ส่วนที่ตัดจะมืดลง ตัวเลขเวลาเปลี่ยนตาม}}
+      <div class="tip"><strong>คีย์ลัดในหน้าต่างนี้</strong><kbd>Space</kbd> ฟัง / หยุด · <kbd>I</kbd> ตั้งจุดเริ่มตรงที่ฟังอยู่ · <kbd>O</kbd> ตั้งจุดจบตรงที่ฟังอยู่ · <kbd>Esc</kbd> ยกเลิก</div>
+      <p>ไฟล์ต้นฉบับถูกเก็บไว้ทั้งก้อนเสมอ การตัดมีผลแค่เสียงที่ส่งให้ AI แยก หน้าเพลงจะบอกไว้ใต้ชื่อเพลงว่าใช้ช่วงไหนของไฟล์</p>
+
+      <h3 id="processing">4. รอแยกเสียง</h3>
+      <p>หลังกดแยก stem จะเห็นหน้าความคืบหน้า มี 4 ขั้น: อ่านไฟล์ → โหลดโมเดล → แยก stem → วิเคราะห์ เสร็จแล้วจะเปิดหน้าเพลงให้เอง</p>
+      {{figure:processing::หน้าความคืบหน้า บอกขั้นที่ทำอยู่และเวลาที่เหลือโดยประมาณ}}
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>เครื่อง</th><th>เพลง 4 นาที (6 แทร็ก)</th></tr></thead>
+          <tbody>
+            <tr><td>MacBook Pro M3 Pro</td><td class="num">ราว 30 วินาที – 1 นาที</td></tr>
+            <tr><td>M1 / M2 RAM 8 GB</td><td class="num">นานกว่านี้หลายเท่า</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="tip"><strong>ไม่ต้องเฝ้าหน้าจอ</strong>กลับหน้าแรกไปทำอย่างอื่นได้ หรือวางหลายเพลงต่อกัน Prism จะแยกทีละเพลงตามคิว ในรายการเพลงจะบอกเปอร์เซ็นต์ของแต่ละเพลง</div>
+      <div class="warn"><strong>อย่าปิดหน้าต่าง Terminal ระหว่างแยกเสียง</strong>งานที่ค้างอยู่จะหยุดและขึ้นว่า "งานถูกขัดจังหวะ" ต้องนำเข้าเพลงนั้นใหม่</div>
+
+      <h3 id="studio">5. รู้จักหน้าเพลง</h3>
+      <p>หน้าเพลงคือที่ทำงานหลัก แบ่งเป็นแถบควบคุมด้านบน ข้อมูลเพลง และมิกเซอร์กับไทม์ไลน์</p>
+      {{figure:studio-top:wide:แถบด้านบนและข้อมูลเพลง}}
+      <ol class="legend">
+        <li><b>1</b><span><strong>ปุ่มเล่น</strong> ถัดไปเป็นปุ่มย้อน/ข้าม 5 วินาที, วนลูป (เลือกช่วงบนไทม์ไลน์แล้วเล่นวน) และปุ่มเมโทรนอมเปิดปิดเสียงคลิก</span></li>
+        <li><b>2</b><span><strong>เวลา</strong> ตำแหน่งที่เล่นอยู่ / ความยาวเพลง</span></li>
+        <li><b>3</b><span><strong>ท่อนและคอร์ดตอนนี้</strong> เปลี่ยนตามตำแหน่งที่เล่น พร้อมเลขโรมันเทียบกับคีย์</span></li>
+        <li><b>4</b><span><strong>เพิ่มลงเพลย์ลิสต์ · ส่งออกมิกซ์ · Tempo map</strong> ส่งเพลงไปเพลย์ลิสต์ (Phase 4), บันทึกเสียงที่ได้ยินอยู่เป็นไฟล์เดียว, ดาวน์โหลดไฟล์ MIDI ความเร็วสำหรับ DAW (Phase 2)</span></li>
+        <li><b>5</b><span><strong>ดาวน์โหลด stem</strong> ZIP ของทุกแทร็ก (ดูหัวข้อถัดไป)</span></li>
+        <li><b>6</b><span><strong>ข้อมูลเพลง</strong> ความเร็ว (BPM), คีย์, อัตราจังหวะ, ความดัง (LUFS) และโครงสร้าง ถ้าเพลงช้าเร็วไม่เท่ากันจะบอกจำนวนช่วงและช่วงความเร็ว</span></li>
+      </ol>
+
+      {{figure:studio-mixer:wide:มิกเซอร์และไทม์ไลน์}}
+      <ol class="legend">
+        <li><b>1</b><span><strong>พรีเซ็ตการฟัง</strong> สลับเร็วๆ ระหว่างทุกแทร็ก, คาราโอเกะ (ไม่มีเสียงร้อง), เสียงร้องอย่างเดียว, ไม่มีกลอง, ไม่มีเบส</span></li>
+        <li><b>2</b><span><strong>ออกลำโพงซ้าย-ขวา</strong> ส่งคิวกับเมโทรนอมไปข้างหนึ่ง ดนตรีไปอีกข้าง (เช่นคลิกเข้าหูฟัง in-ear ข้างเดียว) แทร็กที่ส่งไปข้างเดียวจะถูกรวมเป็นโมโนโดยไม่เบาลง</span></li>
+        <li><b>3</b><span><strong>แถบเครื่องมือแก้ไข</strong> ช่วงนับก่อนเพลง, ทำคลิกให้นิ่ง, ล็อกความเร็ว, แก้เมโทรนอม, เพิ่มเสียงจากไฟล์, cue อธิบายละเอียดใน Phase 2 และ 3</span></li>
+        <li><b>4</b><span><strong>ปุ่มของแต่ละแทร็ก</strong> <kbd>M</kbd> ปิดเสียง, <kbd>S</kbd> ฟังแทร็กนี้อย่างเดียว (โซโล่), ลูกศรลงคือดาวน์โหลดแทร็กนี้แทร็กเดียว</span></li>
+        <li><b>5</b><span><strong>ความดังและลำโพง</strong> เลื่อน fader เพื่อปรับความดัง (ตัวเลขเป็น dB) ปุ่ม <kbd>L</kbd> <kbd>C</kbd> <kbd>R</kbd> เลือกว่าแทร็กนี้ออกซ้าย กลาง หรือขวา ค่าลำโพงจำไว้ต่อเพลง</span></li>
+        <li><b>6</b><span><strong>ไทม์ไลน์</strong> แถวบนสุดคือเวลา ท่อนเพลง คอร์ด และความเร็ว คลิกตรงไหนก็เล่นจากตรงนั้น คลิกชื่อท่อนเพื่อกระโดดไปท่อนนั้น ซูมด้วยปุ่ม − / + มุมขวา</span></li>
+      </ol>
+      {{anim:studio-play:ระหว่างเล่น เส้นตำแหน่งวิ่งไปตามไทม์ไลน์ ชื่อท่อนและคอร์ดด้านบนเปลี่ยนตาม}}
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>คีย์ลัดในหน้าเพลง</th><th>ทำอะไร</th></tr></thead>
+          <tbody>
+            <tr><td><kbd>Space</kbd></td><td>เล่น / หยุด</td></tr>
+            <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>ย้อน / ข้าม 5 วินาที</td></tr>
+            <tr><td><kbd>L</kbd></td><td>เปิดปิดการวนลูป</td></tr>
+            <tr><td><kbd>C</kbd></td><td>เปิดปิดเสียงเมโทรนอม</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 id="export">6. ส่งออกเบื้องต้น</h3>
+      <p>ส่งออกได้ 3 แบบ ทุกไฟล์ยาวเท่ากันหมด ลากเข้า DAW แล้ววางที่ตำแหน่ง 0 ทุกแทร็กจะตรงกันทันที</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>ปุ่ม</th><th>ได้อะไร</th></tr></thead>
+          <tbody>
+            <tr><td><span class="ui">ดาวน์โหลด stem</span></td><td>ไฟล์ ZIP ชื่อตามเพลง ข้างในเป็นไฟล์ WAV ตั้งชื่อตามเครื่องดนตรี (<code>drums.wav</code>, <code>bass.wav</code> …) รวมเมโทรนอม แทร็ก cue และ <code>tempo.mid</code></td></tr>
+            <tr><td>ลูกศรลงบนแทร็ก</td><td>WAV ของแทร็กนั้นแทร็กเดียว</td></tr>
+            <tr><td><span class="ui">ส่งออกมิกซ์</span></td><td>WAV ไฟล์เดียวของเสียงที่ได้ยินอยู่ตอนนั้น (ตามที่ปิด เปิด ความดัง และซ้าย/ขวา)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="tip"><strong>แก้อะไรแล้ว ไฟล์ที่ส่งออกตามเสมอ</strong>ทุกการแก้ (เมโทรนอม cue ช่วงนับ การตัดแทร็ก การล็อกความเร็ว) จะมีผลกับไฟล์ที่ดาวน์โหลดครั้งถัดไป ไม่ต้องสั่งสร้างใหม่</div>
+    </section>
+
+    <section id="phase-2">
+      <p class="eyebrow">Phase 2</p>
+      <h2>เมโทรนอมและความเร็ว</h2>
+      <p>เมโทรนอมของ Prism คือแทร็กคลิกที่สร้างจากจังหวะที่ AI ฟังได้จากเพลง จังหวะที่ 1 ของแต่ละห้องเป็นเสียงสูง จังหวะอื่นเป็นเสียงต่ำ ส่วนใหญ่ตรงตั้งแต่แรก แต่เพลงที่มีท่อนเบรก ท่อนส่ง หรือเล่นสดโดยไม่มีคลิก อาจมีบีตเกิน บีตขาด หรือบีตเบี้ยวบางจุด phase นี้สอนตรวจและแก้ให้เมโทรนอมตรงกับกลองก่อนเอาไปใช้จริง</p>
+
+      <h3 id="metro-which">1. เลือกวิธีให้ตรงกับเพลง</h3>
+      <p>ดูที่ข้อมูลเพลงใต้ชื่อเพลง (Phase 1 หัวข้อ 5) ถ้าบอกความเร็วเดียวทั้งเพลง แปลว่าเพลงอัดกับคลิกมา ถ้าบอกเป็นช่วง เช่น "93–115 BPM · 3 ช่วง" แปลว่าเพลงช้าเร็วไม่เท่ากัน</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>เพลงแบบนี้</th><th>ใช้อะไร</th></tr></thead>
+          <tbody>
+            <tr><td>อัดกับคลิก ความเร็วเท่ากันทั้งเพลง</td><td>ฟังเมโทรนอมเทียบกลองสักรอบ ถ้าเพี้ยนบางจุดกด <span class="ui">ซ่อมจุดที่เพี้ยน</span> (หัวข้อ 4)</td></tr>
+            <tr><td>เล่นสด หรืออัดโดยไม่มีคลิก มือกลองอยากได้คลิกนิ่งๆ</td><td><span class="ui">ทำคลิกให้นิ่ง</span> (หัวข้อ 5) ระบบซ่อมเมโทรนอมแล้วยืดเสียงทุกแทร็กให้ทุกบีตยาวเท่ากันในขั้นตอนเดียว</td></tr>
+            <tr><td>อยากให้คลิกตามความช้าเร็วจริงของเพลง (ไม่ยืดเสียง)</td><td><span class="ui">ซ่อมจุดที่เพี้ยน</span> แล้วใช้ไฟล์ <span class="ui">Tempo map</span> ใน DAW (หัวข้อ 8)</td></tr>
+            <tr><td>ซ่อมอัตโนมัติแล้วยังไม่ตรงบางจุด</td><td>แก้เองทีละบีต (หัวข้อ 3) หรือ <span class="ui">ให้ Claude ช่วยดู</span> (หัวข้อ 7)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 id="metro-listen">2. ฟังเมโทรนอมเทียบกับกลอง</h3>
+      <p>เมโทรนอมปิดเสียงไว้ตอนเปิดเพลง เพราะเป็นเสียงช่วยนับ ไม่ใช่ดนตรี</p>
+      <ol class="steps">
+        <li>กดปุ่มรูปเมโทรนอมบนแถบด้านบน (ข้างปุ่มวนลูป) หรือกด <kbd>C</kbd> เพื่อเปิดเสียงคลิก</li>
+        <li>กด <kbd>S</kbd> ที่แทร็ก <strong>กลอง</strong> และแทร็ก <strong>เมโทรนอม</strong> เพื่อฟังสองแทร็กนี้อย่างเดียว จะได้ยินชัดว่าคลิกตรงกับกระเดื่องและสแนร์ไหม</li>
+        <li>ฟังช่วงที่มักเพี้ยน: ท่อนเบรก ท่อนส่งเข้าฮุก และท่อนจบ คลิกชื่อท่อนบนไทม์ไลน์เพื่อกระโดดไปฟังได้เลย</li>
+      </ol>
+      <div class="tip"><strong>ดูด้วยตาก็ได้</strong>ซูมไทม์ไลน์ (ปุ่ม + มุมขวา) แล้วดูว่าขีดในแถวเมโทรนอมตรงกับหัวคลื่นเสียงกลองไหม จุดที่ขีดหลุดจากหัวกลองคือจุดที่ต้องแก้</div>
+
+      <h3 id="metro-edit">3. แก้เมโทรนอมเอง</h3>
+      <p>กดปุ่ม <span class="ui">แก้เมโทรนอม</span> ในแถบเครื่องมือ จะมีแผงแก้ไขขึ้นมาเหนือไทม์ไลน์ และเสียงคลิกจะเปิดให้เอง ทุกการแก้บันทึกอัตโนมัติ ไม่ต้องกดเซฟ</p>
+      {{figure:metro-panel:wide:แผงแก้เมโทรนอม ซูมไว้ที่ 16× และเลือกจังหวะหนึ่งไว้ (ขีดสีแดง)}}
+      <ol class="legend">
+        <li><b>1</b><span><strong>ขยับทั้งเส้น</strong> เลื่อนทุกคลิกพร้อมกันทีละ 1, 10 หรือ 50 มิลลิวินาที ใช้เมื่อคลิกมาก่อนหรือหลังกลองเท่าๆ กันทั้งเพลง</span></li>
+        <li><b>2</b><span><strong>BPM</strong> ใส่ความเร็วแล้วกด <span class="ui">ตั้งเป็นจังหวะคงที่</span> สำหรับเพลงที่อัดกับคลิกมา ถ้าเพลงช้าเร็วไม่เท่ากัน ระบบจะเตือนก่อนและแนะนำ "ทำคลิกให้นิ่ง" แทน ปุ่ม <kbd>×2</kbd> <kbd>÷2</kbd> ใช้เมื่อเมโทรนอมนับเร็วหรือช้าไปเท่าตัว</span></li>
+        <li><b>3</b><span><strong>อัตราจังหวะ</strong> 2/4, 3/4, 4/4, 5/4, 6/8, 7/8, 12/8 เปลี่ยนแล้วเส้นห้องจะจัดใหม่ทั้งเพลง</span></li>
+        <li><b>4</b><span><strong>ปุ่มช่วยแก้</strong> <span class="ui">ให้ Claude ช่วยดู</span>, <span class="ui">ซ่อมจุดที่เพี้ยน</span>, <span class="ui">ย้อนกลับ</span> (ย้อนได้หลายขั้น) และ <span class="ui">คืนค่าอัตโนมัติ</span> (ทิ้งการแก้ทั้งหมด กลับไปใช้เมโทรนอมที่ AI สร้าง)</span></li>
+        <li><b>5</b><span><strong>ความเร็วแต่ละช่วง</strong> คลิกช่วงไหนก็เลือกช่วงนั้น แล้วใส่ BPM ในช่อง 2 เพื่อตั้งความเร็วเฉพาะช่วง หรือกด <span class="ui">เกลี่ยให้ห่างเท่ากัน</span> ให้ทุกจังหวะในช่วงห่างเท่ากันโดยไม่ขยับขอบช่วง</span></li>
+        <li><b>6</b><span><strong>จังหวะที่เลือก</strong> บอกว่าเป็นจังหวะที่เท่าไหร่ อยู่เวลาไหน ปุ่ม −5 −1 +1 +5 ขยับทีละมิลลิวินาที, <span class="ui">ตั้งเป็นจังหวะที่ 1</span> ให้ห้องเริ่มที่จังหวะนี้ (ห้องถัดๆ ไปจัดตาม), <span class="ui">ลบจังหวะนี้</span> และติ๊ก <span class="ui">ขยับจังหวะถัดไปด้วย</span> เพื่อให้จังหวะหลังจากนี้เลื่อนตามไปทั้งหมด</span></li>
+        <li><b>7</b><span><strong>แถวเมโทรนอม</strong> ขีดยาวคือจังหวะที่ 1 ของห้อง ขีดสั้นคือจังหวะอื่น ขีดสีแดงคือจังหวะที่เลือกอยู่</span></li>
+      </ol>
+      <p><strong>เล็งจังหวะให้ตรงหัวกลอง</strong></p>
+      <ol class="steps">
+        <li>ซูมเข้าจนขีดในแถวเมโทรนอมห่างกันชัดเจน (ราว 8× ขึ้นไป) ถ้ายังซูมไม่พอ การลากในแถวนี้จะเป็นการเลือกช่วงแทน กันขีดขยับโดยไม่ตั้งใจ</li>
+        <li>คลิกขีดที่จะแก้ ขีดจะเป็นสีแดง</li>
+        <li>ลากขีดไปวางตรงหัวคลื่นเสียงกลอง หรือกด <kbd>←</kbd> <kbd>→</kbd> ขยับทีละ 1 ms (กด <kbd>Shift</kbd> ค้างไว้ = 10 ms)</li>
+        <li>บีตเกิน: ดับเบิลคลิกที่ขีดเพื่อลบ · บีตขาด: ดับเบิลคลิกตรงที่ว่างในแถวเมโทรนอมเพื่อเพิ่ม</li>
+      </ol>
+      {{anim:beat-drag:ลากขีดเมโทรนอม (แถวล่าง) ออกจากหัวกลอง (แถวบน) แล้วลากกลับมาวางให้ตรง}}
+      <div class="tip"><strong>ห้องเริ่มผิดที่</strong>ถ้าเสียงคลิกสูง (จังหวะที่ 1) ไม่ตรงกับต้นห้องของเพลง คลิกขีดที่ควรเป็นจังหวะที่ 1 แล้วกด <span class="ui">ตั้งเป็นจังหวะที่ 1</span> ครั้งเดียว ห้องทั้งเพลงจะจัดตามให้</div>
+
+      <h3 id="metro-repair">4. ซ่อมจุดที่เพี้ยนอัตโนมัติ</h3>
+      <p>ปุ่ม <span class="ui">ซ่อมจุดที่เพี้ยน</span> (ในแผงแก้เมโทรนอม) เทียบเมโทรนอมกับเสียงกลองทั้งเพลง หาจุดที่บีตเกิน บีตขาด หรือบีตเบี้ยว แล้วจัดใหม่ให้ตรงกับกลอง ใช้ได้เฉพาะเพลงที่มีแทร็กกลอง</p>
+      <div class="pair">
+        <figure><div class="shot"><img src="img/repair-before.webp" width="660" height="159" alt="ก่อนซ่อม: เมโทรนอมขาดไป 1 บีต" loading="lazy"></div><figcaption>ก่อนซ่อม: กลองแถวบน เมโทรนอมแถวล่าง ตรงกลางภาพขาดไป 1 บีต</figcaption></figure>
+        <figure><div class="shot"><img src="img/repair-after.webp" width="660" height="159" alt="หลังซ่อม: บีตที่ขาดกลับมาตรงกับกลอง" loading="lazy"></div><figcaption>หลังซ่อม: บีตที่ขาดกลับมาวางตรงกับกลอง ระบบแจ้งว่า "ซ่อม 1 จุด: 0:59–1:01 เพิ่ม 1 บีต"</figcaption></figure>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>ข้อความที่ขึ้น</th><th>แปลว่า</th></tr></thead>
+          <tbody>
+            <tr><td>ซ่อม N จุด: … เพิ่ม/ลบ … บีต</td><td>แก้ให้แล้ว ฟังจุดที่บอกอีกรอบ ไม่ชอบก็กด <span class="ui">ย้อนกลับ</span></td></tr>
+            <tr><td>ไม่เจอจุดที่ต้องซ่อม เมโทรนอมตรงกับกลองดีแล้ว</td><td>ไม่พบบีตที่หลุดจากกลอง</td></tr>
+            <tr><td>เจอจุดที่เพี้ยนแต่ซ่อมเองไม่ได้ ที่ …</td><td>มักเป็นช่วงที่กลองไม่ตี (เบรก ท่อนเปียโน) ระบบเลยไม่มีอะไรให้เทียบ แก้เองตามหัวข้อ 3 หรือให้ Claude ช่วยดู</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="tip"><strong>ถ้าตั้งจังหวะคงที่ไว้ทั้งเพลงแล้วคลิกค่อยๆ เหลื่อม</strong>การซ่อมจะรู้เองว่าเมโทรนอมทั้งเส้นหลุดจากเพลง และสร้างใหม่จากจังหวะที่ AI ฟังได้ก่อนซ่อม</div>
+
+      <h3 id="steady">5. ทำคลิกให้นิ่ง</h3>
+      <p>สำหรับเพลงที่เล่นสดหรืออัดโดยไม่มีคลิก ความเร็วจึงแกว่งไปมา ถ้าใช้คลิกที่ตามเพลง คนฟังคลิกจะรู้สึกว่าคลิกเร่งๆ หน่วงๆ ส่วนการตั้งคลิกความเร็วเดียวทั้งเพลง คลิกจะค่อยๆ เหลื่อมจากเพลง ปุ่มนี้แก้ทั้งสองปัญหาในขั้นตอนเดียว: ซ่อมเมโทรนอมให้ตรงกลอง แล้วยืดหรือหดเสียงทุกแทร็กเท่าๆ กันให้ทุกบีตยาวเท่ากัน ผลคือคลิกนิ่งและเพลงก็ตรงกับคลิก</p>
+      {{figure:tools-before::แถบเครื่องมือของเพลงที่ยังไม่ล็อก}}
+      <ol class="legend">
+        <li><b>1</b><span><strong>ทำคลิกให้นิ่ง</strong> เริ่มขั้นตอนนี้ (มีเฉพาะเพลงที่มีแทร็กกลอง)</span></li>
+        <li><b>2</b><span><strong>ล็อกความเร็ว</strong> ล็อกเองด้วยมือ (หัวข้อ 6)</span></li>
+        <li><b>3</b><span><strong>แก้เมโทรนอม</strong> (หัวข้อ 3)</span></li>
+      </ol>
+      <ol class="steps">
+        <li>กด <span class="ui">ทำคลิกให้นิ่ง</span></li>
+        <li>เลือกความเร็วที่วงนับจริง ระบบเสนอให้ 2 ตัวเลข คือค่าเฉลี่ยของเพลง และค่าสองเท่าหรือครึ่งหนึ่ง เพราะ AI มักนับเพลงเร็วเป็นครึ่งจังหวะ หรือพิมพ์เองก็ได้</li>
+        <li>กด <span class="ui">เริ่ม</span> แล้วรอ เพลง 5 นาทีใช้ราว 10 วินาที</li>
+        <li>อ่านผล: ล็อกที่ความเร็วเท่าไหร่ เสียงถูกยืดหรือหดมากสุดกี่ % และจุดที่ควรฟัง (กดเพื่อไปฟังตรงนั้นได้เลย)</li>
+      </ol>
+      {{figure:steady-choose::เลือกความเร็ว: ปุ่มความเร็วที่แนะนำ (1), ช่องพิมพ์เอง (2) และปุ่มเริ่ม (3)}}
+      {{figure:steady-result::ผลลัพธ์: ล็อกที่ 102 BPM เสียงถูกยืดหรือหดระหว่าง −5.8% ถึง +8.9%}}
+      <p>หลังล็อก แถบเครื่องมือจะเปลี่ยนเป็นแบบนี้</p>
+      {{figure:tools-after::แถบเครื่องมือหลังล็อกความเร็ว}}
+      <ol class="legend">
+        <li><b>1</b><span><strong>จุดที่ควรฟัง (จำนวน)</strong> เปิดรายการจุดที่เสียงถูกยืดเยอะหรือห้องที่จังหวะไม่ครบอีกครั้ง</span></li>
+        <li><b>2</b><span><strong>ปลดล็อก</strong> เอาเสียงและเมโทรนอมเดิมกลับมา เสียงต้นฉบับไม่เคยหาย</span></li>
+        <li><b>3</b><span><strong>แก้เมโทรนอม</strong> กดไม่ได้ระหว่างล็อก ถ้าต้องแก้ ให้ปลดล็อกก่อน แก้ แล้วล็อกใหม่</span></li>
+      </ol>
+      <div class="warn"><strong>ฟังจุดที่ระบบบอกก่อนเอาไปใช้</strong>ยืดเสียงไม่เกินราว ±8% แทบไม่ได้ยินความต่าง ถ้ามากกว่านั้น เสียงร้องหรือเสียงที่ลากยาวอาจฟังแปลกเล็กน้อย ถ้าล็อกไม่ผ่าน เมโทรนอมจะกลับเป็นเหมือนก่อนกด ลองเลือกความเร็วอีกตัว หรือแก้จุดที่บอกเองแล้วลองใหม่</div>
+      <div class="tip"><strong>ล็อกแล้วอะไรเปลี่ยนบ้าง</strong>ทุกแทร็กที่ได้ยิน ไฟล์ที่ดาวน์โหลด มิกซ์ที่ส่งออก เพลย์ลิสต์ และ Tempo map ใช้เสียงที่ล็อกแล้วทั้งหมด ส่วนเสียงที่เพิ่มจากไฟล์ (Phase 3) จะไม่ถูกยืด เพราะมักทำมาที่ความเร็วที่ล็อกอยู่แล้ว</div>
+
+      <h3 id="lock">6. ล็อกความเร็วเอง</h3>
+      <p>ถ้าแก้เมโทรนอมเองจนพอใจแล้ว และอยากล็อกโดยไม่ให้ระบบซ่อมอะไรเพิ่ม ใส่ความเร็วในช่อง <span class="ui">ล็อกความเร็ว</span> แล้วกด <span class="ui">ล็อก</span> ช่องนี้ใส่ค่าเฉลี่ยของเพลงไว้ให้แล้ว</p>
+      <p>ถ้ามีจุดที่ต้องยืดเสียงเกิน 15% (มักเพราะเมโทรนอมบีตเกินหรือขาดตรงนั้น) ระบบจะไม่ล็อก และบอกเวลาของจุดนั้น ให้แก้จุดนั้นก่อน หรือกด <span class="ui">ซ่อมจุดที่เพี้ยน</span> แล้วล็อกใหม่</p>
+
+      <h3 id="claude">7. ให้ Claude ช่วยดู (ไม่บังคับ)</h3>
+      <p>สำหรับจุดที่ซ่อมอัตโนมัติไม่ได้ ปุ่ม <span class="ui">ให้ Claude ช่วยดู</span> ในแผงแก้เมโทรนอมจะส่งตัวเลขจังหวะไปให้ Claude ช่วยวิเคราะห์ เป็นฟีเจอร์เดียวของ Prism ที่ส่งข้อมูลออกนอกเครื่อง และจะส่งก็ต่อเมื่อคุณกดยืนยันเท่านั้น</p>
+      {{figure:claude::หน้าต่างยืนยันก่อนส่งให้ Claude บอกชัดว่าส่งอะไรไปบ้าง}}
+      <ol class="steps">
+        <li>ครั้งแรกต้องมีอย่างใดอย่างหนึ่ง: <strong>Claude Code</strong> ที่ล็อกอินไว้ในเครื่อง (เปิด Terminal พิมพ์ <code>claude auth login</code>) หรือ <strong>API key</strong> จาก console.anthropic.com ใส่ในหน้าต่างนี้ (key เก็บไว้ในเครื่องเท่านั้น)</li>
+        <li>กด <span class="ui">ส่งให้ Claude</span> แล้วรอ 1–3 นาที ระหว่างรอปิดหน้าต่างไปทำอย่างอื่นได้</li>
+        <li>อ่านคำอธิบายว่า Claude แก้อะไรไป และล็อกผ่านไหม แล้วกด <span class="ui">ใช้ผลนี้</span> หรือ <span class="ui">ไม่ใช้</span></li>
+        <li>ฟังจุดที่แก้ ถ้าไม่ชอบกด <span class="ui">ย้อนกลับ</span> ในแผงแก้เมโทรนอม</li>
+      </ol>
+      <div class="tip"><strong>ส่งอะไรออกไปบ้าง</strong>เฉพาะตัวเลข: เวลาของบีต เวลาที่กลองกับเบสตี และชื่อท่อน ไม่ส่งไฟล์เสียงและไม่ส่งชื่อเพลง ถ้าใช้ Claude Code กับแพ็กเกจ Claude จะนับรวมในโควตาการใช้งาน ถ้าใช้ API key เสียค่าใช้จ่ายราว $0.1–0.6 ต่อครั้ง</div>
+
+      <h3 id="tempomap">8. Tempo map สำหรับ DAW</h3>
+      <p>ปุ่ม <span class="ui">Tempo map</span> บนแถบด้านบนดาวน์โหลดไฟล์ <code>tempo.mid</code> (มีอยู่ใน ZIP ของ "ดาวน์โหลด stem" ด้วย) ข้างในเป็นความเร็วของทุกบีต อัตราจังหวะ ชื่อท่อนเป็น marker และโน้ตคลิก ใช้ให้ grid ของ DAW ตรงกับเพลง จะได้ตัดต่อ วางลูป หรือเพิ่มโน้ต MIDI ตามห้องได้ตรง</p>
+      <ol class="steps">
+        <li>สร้างโปรเจกต์ใหม่ใน DAW แล้วนำเข้า <code>tempo.mid</code> ก่อนไฟล์อื่น ถ้า DAW ถามว่าจะนำเข้า tempo และอัตราจังหวะจากไฟล์ไหม ให้ตอบตกลง</li>
+        <li>ลากไฟล์ WAV ทุกแทร็กมาวางที่ต้นโปรเจกต์ (เวลา 0) ทุกไฟล์ยาวเท่ากัน จึงตรงกันทันที</li>
+        <li>เช็กว่าเส้นห้องของ DAW ตรงกับเสียงคลิกสูงของแทร็กเมโทรนอม</li>
+      </ol>
+      <div class="tip"><strong>ก่อนห้องแรกของเพลง</strong>ไฟล์ใส่ช่วงสั้นๆ ที่ความเร็วสูงไว้ก่อนบีตแรก เพื่อให้ห้องที่ 1 ของ DAW ตรงกับต้นห้องแรกของเพลงพอดี โดยไฟล์เสียงยังวางที่เวลา 0 ได้ตามปกติ ถ้าล็อกความเร็วไว้ Tempo map จะเป็นความเร็วเดียวทั้งเพลง</div>
+    </section>
+
+    <section id="phase-3">
+      <p class="eyebrow">Phase 3</p>
+      <h2>cue · ช่วงนับ · แทร็กเพิ่ม</h2>
+      <p>phase นี้คืองานเตรียม data ให้วงเล่นได้จริง: เสียงพูดบอกท่อน (cue) ในหูฟัง, เสียงนับเข้า, ช่วงนับก่อนเพลง, แยกบางท่อนออกมาเป็นแทร็กของตัวเอง และเอาเสียงจากไฟล์อื่นมาใส่เพิ่ม</p>
+      <p>cue ทั้งหมดอยู่ในแทร็ก <strong>Cues (เสียงบอกท่อน)</strong> แถวล่างสุดของไทม์ไลน์ เป็นเสียงพูดภาษาไทยหรืออังกฤษที่ Mac สร้างให้ในเครื่อง ไม่ต้องต่อเน็ต</p>
+
+      <h3 id="cue-auto">1. ใส่ cue อัตโนมัติจากท่อนเพลง</h3>
+      <p>วิธีเร็วที่สุด: กด <span class="ui">ใส่ cue อัตโนมัติจากท่อนเพลง</span> ระบบจะใส่ cue ก่อนเข้าทุกท่อน 1 ห้อง เช่น "เวิร์สสอง", "ฮุกหนึ่ง", "ท่อนส่ง", "ดนตรี สอง" ตามท่อนที่ AI แบ่งไว้</p>
+      {{figure:cue-auto:wide:กดครั้งเดียวได้ cue 13 จุด ป้ายสีน้ำเงินในแถว Cues คือ cue แต่ละจุด เส้นตั้งคือเวลาที่เริ่มพูด}}
+      <ol class="legend">
+        <li><b>1</b><span><strong>ใส่ cue อัตโนมัติจากท่อนเพลง</strong> กดซ้ำได้ จะแทนที่ cue อัตโนมัติชุดเดิม ส่วน cue ที่ใส่เองยังอยู่</span></li>
+        <li><b>2</b><span><strong>+ เพิ่ม cue</strong> เปิดหน้าต่างเลือก cue ที่ตำแหน่งที่เล่นอยู่ ถัดไปเป็น <span class="ui">ย้อน cue</span> และ <span class="ui">ล้าง cue ทั้งหมด</span> (กดสองครั้งเพื่อยืนยัน)</span></li>
+      </ol>
+      <div class="tip"><strong>ชื่อท่อนผิด cue ก็ผิดตาม</strong>AI แบ่งท่อนได้ใกล้เคียง แต่ไม่ได้ถูกทุกเพลง ฟังทั้งเพลงหนึ่งรอบ แล้วแก้ cue ที่ไม่ตรงตามหัวข้อ 4</div>
+
+      <h3 id="cue-add">2. เพิ่ม cue เอง</h3>
+      <ol class="steps">
+        <li>คลิกในแถว <strong>Cues</strong> ตรงจุดที่วงเข้าท่อนนั้น (หรือกด <span class="ui">+ เพิ่ม cue</span> เพื่อใช้ตำแหน่งที่เล่นอยู่)</li>
+        <li>เลือกหมวด แล้วคลิกคำที่ต้องการเพื่อฟังตัวอย่าง</li>
+        <li>เลือกว่าจะให้พูด<strong>ก่อนจุดนั้นเท่าไหร่</strong> ค่าเริ่มต้นคือก่อน 1 ห้อง วงจะได้ยินก่อนเข้าท่อนพอดี</li>
+        <li>กด <span class="ui">ใส่ cue</span> (หรือดับเบิลคลิกคำนั้นเพื่อใส่ทันที)</li>
+      </ol>
+      {{figure:cue-picker:wide:หน้าต่างเพิ่ม cue เปิดอยู่ที่หมวด "ความดังและการเล่น"}}
+      <ol class="legend">
+        <li><b>1</b><span><strong>ที่เวลา</strong> จุดที่คลิก แก้ตัวเลขได้ (วินาที)</span></li>
+        <li><b>2</b><span><strong>วาง</strong> ตรงจุดนี้ / ก่อนจุดนี้ 2 จังหวะ / ก่อน 1 ห้อง / ก่อน 2 ห้อง และติ๊ก <span class="ui">ชิดจังหวะ</span> ให้ cue เริ่มตรงบีตพอดี</span></li>
+        <li><b>3</b><span><strong>หมวด</strong> ท่อนเพลง, เครื่องดนตรีเข้า-ออก, ความดังและการเล่น, การวนและการจบ, คีย์และจังหวะ, คำนับและคำสั้น, นับเข้า และ <strong>พิมพ์เอง</strong> (พิมพ์ประโยคอะไรก็ได้ เช่น "ท่อนแร็พของเจ") ช่องค้นหาด้านขวาค้นได้ทั้งไทยและอังกฤษ</span></li>
+        <li><b>4</b><span><strong>คำในหมวด</strong> คำไทยตัวหนา คำอังกฤษตัวจาง ทั้งหมดมี 135 คำ</span></li>
+        <li><b>5</b><span><strong>เสียง</strong> เลือกเสียงผู้พูด (ไทย: กันยา, อังกฤษ: หลายเสียงตามที่มีใน Mac) โปรแกรมจำเสียงที่เลือกล่าสุดไว้</span></li>
+        <li><b>6</b><span><strong>ฟังเสียง</strong> ฟังก่อนใส่ และ <strong>ใส่ cue</strong></span></li>
+      </ol>
+
+      <h3 id="cue-count">3. เสียงนับเข้า</h3>
+      <p>หมวด <strong>นับเข้า</strong> พูดตัวเลขบนบีตของเมโทรนอมก่อนจุดที่เลือก ให้คลิกตรง<strong>จังหวะที่วงเข้า</strong> ระบบนับบนจังหวะก่อนหน้านั้นเอง และถ้าแก้เมโทรนอมทีหลัง เสียงนับจะย้ายตามบีตใหม่ให้</p>
+      {{figure:cue-count:wide:รูปแบบการนับเข้า 7 แบบ}}
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>แบบ</th><th>ได้ยิน</th></tr></thead>
+          <tbody>
+            <tr><td>นับ 1 ห้องเต็ม</td><td>1 2 3 4</td></tr>
+            <tr><td>นับ 2 ห้อง</td><td>1 · 2 · / 1 2 3 4</td></tr>
+            <tr><td>นับครึ่งห้องท้าย</td><td>3 4</td></tr>
+            <tr><td>นับแล้วบอกพร้อม-ไป</td><td>1 2 พร้อม ไป</td></tr>
+            <tr><td>นับเว้น 1, 2 หรือ 3 จังหวะ</td><td>สำหรับเพลงเร็ว เช่น 1 · 2 · 3 · 4 ·</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 id="cue-edit">4. ย้าย ฟัง และลบ cue</h3>
+      <p>คลิกป้าย cue ในแถว Cues จะมีแผงแก้ cue นั้นขึ้นมา</p>
+      {{figure:cue-selected:wide:เลือก cue "ดนตรี หนึ่ง" ไว้ ป้ายที่เลือกเป็นสีขาว}}
+      <ol class="legend">
+        <li><b>1</b><span><strong>เวลา</strong> พิมพ์เวลาเริ่มพูดได้ละเอียดถึงมิลลิวินาที</span></li>
+        <li><b>2</b><span><strong>ขยับ</strong> ทีละ 1 จังหวะ หรือทีละ 1 / 10 ms</span></li>
+        <li><b>3</b><span><strong>เสียง</strong> เปลี่ยนเสียงผู้พูดเฉพาะ cue นี้</span></li>
+        <li><b>4</b><span><strong>ฟังเสียง · ลบ cue นี้ · ปิด</strong></span></li>
+        <li><b>5</b><span><strong>ป้าย cue</strong> ลากไปซ้ายขวาเพื่อย้าย จะชิดบีตให้เอง (กด <kbd>Alt</kbd> ค้างไว้เพื่อวางอิสระ) กด <kbd>Delete</kbd> เพื่อลบ cue ที่เลือก</span></li>
+      </ol>
+
+      <h3 id="lead">5. ช่วงนับก่อนเพลง</h3>
+      <p>ถ้าเพลงเริ่มพร้อมกันทั้งวงตั้งแต่วินาทีแรก นักดนตรีจะไม่มีเวลานับ เลือก <span class="ui">ช่วงนับก่อนเพลง</span> 1, 2, 3, 4 หรือ 8 ห้อง ระบบจะเติมความเงียบไว้หน้าเพลงทุกแทร็ก ใส่เสียงนับเข้าให้ และเปิดเสียงเมโทรนอม</p>
+      {{figure:lead-in:wide:ช่วงนับ 2 ห้องหน้าเพลง (แถบลายเฉียง "ช่วงนับ 2") มีคลิกและเสียงนับเข้า "นับ 2 ห้อง" ให้แล้ว}}
+      <ol class="legend">
+        <li><b>1</b><span><strong>ช่วงนับก่อนเพลง</strong> เลือก "ไม่มี" เพื่อเอาออก cue และการแก้ทั้งหมดอยู่กับจังหวะเดิมของเพลง ไม่เลื่อนผิดที่</span></li>
+      </ol>
+      <div class="tip"><strong>ไฟล์ที่ส่งออกมีช่วงนับด้วย</strong>ทุกแทร็กที่ดาวน์โหลด (รวมเมโทรนอมและ cue) จะเริ่มด้วยช่วงนับเท่ากันหมด ลากเข้า DAW วางที่ 0 แล้วตรงกันเหมือนเดิม</div>
+
+      <h3 id="cut">6. ตัดช่วงไปเป็นแทร็กใหม่</h3>
+      <p>ใช้เมื่ออยากแยกบางส่วนออกมาคุมเอง เช่น แอดลิบของนักร้อง ท่อนโซโล่กีตาร์ หรือเสียงที่ AI แยกปนมาผิดแทร็ก เสียงช่วงนั้นจะถูก<strong>ย้าย</strong>ออกจากแทร็กเดิมไปอยู่แทร็กใหม่ ตำแหน่งเวลาเดิม</p>
+      <ol class="steps">
+        <li>ลากบนรูปคลื่นของแทร็กที่ต้องการ (ไม่ใช่แถวเมโทรนอมหรือ Cues) เพื่อเลือกช่วง ลากขอบช่วงเพื่อปรับได้</li>
+        <li>กด <span class="ui">ฟังช่วงนี้</span> เพื่อฟังวน ปรับเวลาเริ่มจบด้วยตัวเลข หรือติ๊ก <span class="ui">ชิดจังหวะ</span></li>
+        <li>เลือก <span class="ui">ย้ายไป</span> แทร็กใหม่ แล้วตั้งชื่อ หรือเลือกแทร็กที่ตัดไว้ก่อนแล้วเพื่อรวมไว้ที่เดียวกัน</li>
+        <li>กด <span class="ui">ย้ายไปแทร็ก</span></li>
+      </ol>
+      {{figure:cut-select:wide:เลือกช่วง 0:42.20–0:50.60 ของเสียงร้องไว้ ตั้งชื่อแทร็กใหม่ว่า "แอดลิบ"}}
+      <ol class="legend">
+        <li><b>1</b><span><strong>แทร็กต้นทาง</strong> ของช่วงที่เลือก</span></li>
+        <li><b>2</b><span><strong>เริ่ม · จบ · ความยาว</strong> (วินาที)</span></li>
+        <li><b>3</b><span><strong>ชิดจังหวะ</strong> ขยับขอบช่วงไปบีตที่ใกล้ที่สุด</span></li>
+        <li><b>4</b><span><strong>ฟังช่วงนี้</strong> เล่นวนเฉพาะช่วงที่เลือก</span></li>
+        <li><b>5</b><span><strong>ย้ายไป</strong> แทร็กใหม่ (ใส่ชื่อในช่องถัดไป) หรือแทร็กที่ตัดไว้แล้ว</span></li>
+        <li><b>6</b><span><strong>ย้ายไปแทร็ก · ยกเลิก</strong></span></li>
+        <li><b>7</b><span><strong>ช่วงที่เลือก</strong> บนรูปคลื่น (กรอบสีอ่อน)</span></li>
+      </ol>
+      {{figure:cut-after:wide:ได้แทร็ก "แอดลิบ" ใหม่ เสียงช่วงนั้นหายจากแทร็กเสียงร้อง}}
+      <ol class="legend">
+        <li><b>1</b><span><strong>แทร็กใหม่</strong> คลิกชื่อเพื่อเปลี่ยนชื่อ ปุ่ม × (กดสองครั้ง) ลบแทร็กและคืนเสียงกลับแทร็กเดิม</span></li>
+        <li><b>2</b><span><strong>ย้อนการตัดล่าสุด</strong> ยกเลิกการตัดครั้งล่าสุด</span></li>
+      </ol>
+      <div class="tip"><strong>เสียงต้นฉบับไม่หาย</strong>การตัดไม่แตะไฟล์ stem ที่แยกไว้ ย้อนหรือลบแทร็กที่ตัดเมื่อไหร่ เสียงก็กลับมาครบ</div>
+
+      <h3 id="add">7. เพิ่มเสียงจากไฟล์</h3>
+      <p>เอาเสียงที่ไม่ได้อยู่ในเพลงเข้ามาเป็นแทร็กใหม่ เช่น sample, เสียงเอฟเฟกต์, intro ที่ทำไว้ หรือท่อนที่อัดเพิ่ม กด <span class="ui">+ เพิ่มเสียงจากไฟล์</span> หรือลากไฟล์เสียงมาวางบนหน้าเพลงก็ได้</p>
+      {{figure:add-sound::หน้าต่างเพิ่มเสียงจากไฟล์}}
+      <ol class="legend">
+        <li><b>1</b><span><strong>เลือกไฟล์</strong> MP3, WAV, FLAC, M4A, AAC, OGG, AIFF หรือวิดีโอ MP4/MOV</span></li>
+        <li><b>2</b><span><strong>ชื่อแทร็ก</strong> ใช้ชื่อไฟล์ให้ก่อน แก้ได้</span></li>
+        <li><b>3</b><span><strong>เริ่มเล่นที่</strong> ตำแหน่งที่เล่นอยู่, ต้นไทม์ไลน์ (0:00 ซึ่งอยู่ในช่วงนับถ้ามี) หรือพิมพ์เวลาเอง</span></li>
+        <li><b>4</b><span><strong>เพิ่มเป็นแทร็กใหม่</strong></span></li>
+      </ol>
+      {{figure:add-after:wide:แทร็ก "Synth intro" เริ่มที่ 0:10}}
+      <ol class="legend">
+        <li><b>1</b><span><strong>⇥ ย้าย</strong> ให้เสียงนี้เริ่มที่ตำแหน่งที่เล่นอยู่ (เลื่อนตำแหน่งเล่นไปจุดที่ต้องการก่อนแล้วกด)</span></li>
+        <li><b>2</b><span><strong>× ลบ</strong> (กดสองครั้งเพื่อยืนยัน)</span></li>
+      </ol>
+      <div class="tip"><strong>เสียงจากไฟล์ไม่ถูกยืด</strong>เสียงที่เพิ่มเล่นตามความเร็วเดิมของไฟล์เสมอ แม้เพลงจะล็อกความเร็วอยู่ (Phase 2) เพราะมักทำมาที่ความเร็วนั้นอยู่แล้ว ส่วนที่ยาวเกินท้ายเพลงจะถูกตัด ปรับความดัง ซ้าย/ขวา ส่งออก และใช้ในเพลย์ลิสต์ได้เหมือนแทร็กอื่น</div>
+
+      <h3 id="export-all">8. ส่งออกให้ครบ</h3>
+      <p>หลังเตรียมทุกอย่างแล้ว กด <span class="ui">ดาวน์โหลด stem</span> ได้ไฟล์ <code>ชื่อเพลง - stems.zip</code> ที่มีครบทุกอย่างที่ทำไว้ ทุกไฟล์ยาวเท่ากันและเริ่มพร้อมกัน</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>ไฟล์ใน ZIP</th><th>คืออะไร</th></tr></thead>
+          <tbody>
+            <tr><td><code>vocals.wav</code>, <code>drums.wav</code> …</td><td>stem ที่แยกได้ (หักช่วงที่ตัดออกไปแล้ว)</td></tr>
+            <tr><td>ชื่อแทร็กที่ตั้งเอง เช่น <code>แอดลิบ.wav</code></td><td>แทร็กที่ตัดมา และเสียงที่เพิ่มจากไฟล์</td></tr>
+            <tr><td><code>click.wav</code></td><td>คลิกตามเมโทรนอมที่แก้แล้ว รวมช่วงนับ</td></tr>
+            <tr><td><code>cues.wav</code></td><td>เสียงบอกท่อนและเสียงนับเข้าทั้งหมด</td></tr>
+            <tr><td><code>tempo.mid</code></td><td>Tempo map สำหรับ DAW (Phase 2)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="tip"><strong>ไฟล์เดียวสำหรับเครื่องเล่นสองช่อง</strong>ถ้าเครื่องเล่นบนเวทีเล่นได้แค่ไฟล์สเตอริโอเดียว กดพรีเซ็ต <span class="ui">คิว+เมโทรนอม ซ้าย · ดนตรี ขวา</span> ในแถว "ออกลำโพง" แล้วกด <span class="ui">ส่งออกมิกซ์</span> จะได้ไฟล์ที่ฝั่งซ้ายมีแต่คลิกกับ cue (ส่งเข้าหูฟังวง) ฝั่งขวาเป็นดนตรี (ส่งออก PA) การเลือกซ้าย/ขวามีผลตอนเล่นและตอนส่งออกมิกซ์ ไฟล์แยกแทร็กใน ZIP ไม่เปลี่ยน</div>
+    </section>
+
+    <section id="phase-4">
+      <p class="eyebrow">Phase 4</p>
+      <h2>เพลย์ลิสต์และโหมดโชว์</h2>
+      <p>เพลย์ลิสต์คือเซ็ตลิสต์สำหรับเล่นจริง เรียงเพลงที่เตรียมไว้ ตั้งว่าแต่ละเพลงเล่นช่วงไหน แทร็กไหน ดังเท่าไหร่ แล้วเล่นต่อกันโดยไม่มีช่องว่าง บนเวทีใช้โหมดโชว์ที่ตัวหนังสือใหญ่ คุมด้วยแป้นเหยียบได้</p>
+
+      <h3 id="pl-make">1. สร้างเพลย์ลิสต์และใส่เพลง</h3>
+      <p>เพิ่มเพลงได้ 3 ทาง</p>
+      <ol class="steps">
+        <li><strong>จากหน้าเพลง</strong> กด <span class="ui">เพิ่มลงเพลย์ลิสต์</span> บนแถบด้านบน แล้วเลือกเพลย์ลิสต์ หรือพิมพ์ชื่อเพื่อสร้างใหม่ ถ้าติ๊ก <span class="ui">ใช้มิกซ์ตอนนี้</span> แทร็กที่ปิด ความดัง และลำโพงซ้าย-ขวาที่ตั้งไว้จะติดไปด้วย</li>
+        <li><strong>จากหน้าเพลย์ลิสต์</strong> กด <span class="ui">เพิ่มจากโปรเจกต์ / ไฟล์ที่นำเข้าไว้</span> เลือกได้ทั้งเพลงที่แยกแล้ว ไฟล์ที่นำเข้าไว้ และเพลงจากเพลย์ลิสต์อื่น (คัดลอกมาพร้อมค่าที่ตั้งไว้)</li>
+        <li><strong>ไฟล์ที่ไม่ต้องแยกเสียง</strong> เช่น เพลงเดินเข้างาน เพลงพักเบรก กด <span class="ui">นำเข้าไฟล์จากเครื่อง</span> หรือลากไฟล์มาวางบนหน้าเพลย์ลิสต์ ไฟล์จะเล่นตามต้นฉบับ ไม่ผ่าน AI</li>
+      </ol>
+      {{figure:add-pl::เพิ่มเพลงจากหน้าเพลงลงเพลย์ลิสต์}}
+      <ol class="legend">
+        <li><b>1</b><span><strong>ใช้มิกซ์ตอนนี้</strong> เอาการปิด/โซโล่ ความดัง และซ้าย-ขวาที่ตั้งในหน้าเพลงไปด้วย</span></li>
+        <li><b>2</b><span><strong>เพิ่ม</strong> ลงเพลย์ลิสต์ที่มีอยู่ ปุ่ม "เปิด" ไปหน้าเพลย์ลิสต์นั้น</span></li>
+        <li><b>3</b><span><strong>สร้างใหม่</strong> พิมพ์ชื่อแล้วกด <span class="ui">สร้างแล้วเพิ่ม</span></span></li>
+      </ol>
+      {{figure:pl-picker::หน้าต่างเลือกเพลงในหน้าเพลย์ลิสต์}}
+      <ol class="legend">
+        <li><b>1</b><span><strong>แท็บ</strong> โปรเจกต์ (เพลงที่แยกแล้ว), ไฟล์ที่นำเข้าไว้ และจากเพลย์ลิสต์อื่น</span></li>
+        <li><b>2</b><span><strong>ค้นหา</strong> ตามชื่อเพลง</span></li>
+        <li><b>3</b><span><strong>เพิ่ม</strong> เพลงเดียวกันใส่ซ้ำได้ ปุ่มจะบอกว่ามีอยู่แล้วกี่ครั้ง เพลงจากโปรเจกต์จะปิดเมโทรนอมไว้ก่อน</span></li>
+      </ol>
+
+      <h3 id="pl-page">2. หน้าเพลย์ลิสต์</h3>
+      <p>เข้าจากปุ่ม <span class="ui">เพลย์ลิสต์</span> ที่หน้าแรก</p>
+      {{figure:setlist:wide:เพลย์ลิสต์ 4 เพลง: ไฟล์เพลงเดินเข้างาน 1 เพลง และเพลงจากโปรเจกต์ 3 เพลง}}
+      <ol class="legend">
+        <li><b>1</b><span><strong>รายการเพลย์ลิสต์</strong> คลิกเพื่อเปิด ปุ่ม <span class="ui">+ สร้างใหม่</span> อยู่ด้านบน คลิกชื่อเพลย์ลิสต์ตรงกลางเพื่อเปลี่ยนชื่อ</span></li>
+        <li><b>2</b><span><strong>ตัวเล่น</strong> ก่อนหน้า · เล่น/หยุดชั่วคราว (<kbd>Space</kbd>) · ถัดไป · หยุด แถบใต้ปุ่มคลิกเพื่อข้ามไปตรงไหนของเพลงก็ได้</span></li>
+        <li><b>3</b><span><strong>โหมดโชว์</strong> (หัวข้อ 4)</span></li>
+        <li><b>4</b><span><strong>เพิ่มเพลง</strong> นำเข้าไฟล์ หรือเลือกจากโปรเจกต์</span></li>
+        <li><b>5</b><span><strong>เล่นต่ออัตโนมัติ</strong> และ <strong>เว้นระหว่างเพลง</strong> (วินาที) เส้นเชื่อมระหว่างแถวบอกว่าเพลงไหนจะเล่นต่อกันเอง</span></li>
+        <li><b>6</b><span><strong>หยุดหลังเพลงนี้</strong> (สีเหลือง = เปิด) จบเพลงนี้แล้วหยุดรอ เช่น หลังเพลงเดินเข้างานรอพิธีกรพูด</span></li>
+        <li><b>7</b><span><strong>⋮⋮ ลากเพื่อเรียงลำดับ</strong></span></li>
+        <li><b>8</b><span><strong>↑ ↓ ×</strong> เลื่อนขึ้นลง และเอาออกจากเพลย์ลิสต์ (กดสองครั้ง)</span></li>
+      </ol>
+      <div class="tip"><strong>เล่นต่อกันแบบไม่มีช่องว่าง</strong>ตัวเล่นเตรียมเพลงถัดไปไว้ล่วงหน้า เพลงต่อกันพอดีวินาที (หรือเว้นตามที่ตั้ง) เพลงจากโปรเจกต์ที่เพิ่งตั้งมิกซ์ใหม่ เล่นครั้งแรกอาจรอเตรียมเสียงสองสามวินาที ครั้งต่อไปเริ่มทันที</div>
+
+      <h3 id="pl-detail">3. ตั้งค่าแต่ละเพลง</h3>
+      <p>คลิกที่แถวเพลงเพื่อเปิดรายละเอียด ค่าที่ตั้งตรงนี้บันทึกไว้กับเพลงในเพลย์ลิสต์นี้เท่านั้น ไม่กระทบหน้าเพลงหรือเพลย์ลิสต์อื่น</p>
+      {{figure:setlist-detail:wide:รายละเอียดของ "เพลงตัวอย่าง B": ปิดเสียงร้อง เมโทรนอมกับ cue ออกซ้าย}}
+      <ol class="legend">
+        <li><b>1</b><span><strong>รูปคลื่นพร้อมชื่อท่อน</strong> ลากเส้นเขียวหัวท้ายเพื่อตั้งจุดเริ่มจบ คลิกตรงไหนก็เล่นจากตรงนั้น</span></li>
+        <li><b>2</b><span><strong>เริ่ม · จบ</strong> พิมพ์เวลา, <span class="ui">ตั้งเริ่ม/จบตรงที่เล่นอยู่</span>, เลือกจากท่อน ("เริ่มที่ท่อน…", "จบเมื่อท่อนนี้จบ…") หรือ <span class="ui">เล่นถึงท้ายเพลง</span></span></li>
+        <li><b>3</b><span><strong>ฟังจากจุดเริ่ม · ฟัง 5 วิสุดท้าย · เฟดเข้า · เฟดออก</strong> (วินาที)</span></li>
+        <li><b>4</b><span><strong>แทร็กที่เล่น</strong> ติ๊กออกเพื่อปิดแทร็กนั้นในเพลย์ลิสต์นี้</span></li>
+        <li><b>5</b><span><strong>ความดัง</strong> −60 ถึง +12 dB ปล่อยเมาส์แล้วจึงมีผล ดับเบิลคลิกเพื่อกลับเป็น 0 dB</span></li>
+        <li><b>6</b><span><strong>L C R</strong> ลำโพงซ้าย กลาง ขวา ของแต่ละแทร็ก</span></li>
+        <li><b>7</b><span><strong>ปุ่มลัด</strong> เปิดทุกแทร็ก, ปิดเสียงร้อง, เฉพาะเปียโน + ดนตรีอื่นๆ, ความดังเท่าเดิมทุกแทร็ก, คิว+เมโทรนอม ซ้าย · ดนตรี ขวา (และกลับกัน), ทุกแทร็กตรงกลาง</span></li>
+      </ol>
+
+      <h3 id="show-mode">4. โหมดโชว์</h3>
+      <p>กด <span class="ui">โหมดโชว์</span> ที่หน้าเพลย์ลิสต์ จอจะเต็ม ตัวหนังสือใหญ่อ่านจากระยะไกลได้ และ Mac จะไม่พักหน้าจอระหว่างเล่น</p>
+      {{figure:show:wide:โหมดโชว์ระหว่างเล่นเพลงที่ 2}}
+      <ol class="legend">
+        <li><b>1</b><span><strong>เพลงที่เล่นอยู่</strong> และสถานะ (กำลังเล่น / หยุดชั่วคราว / พร้อมเล่น)</span></li>
+        <li><b>2</b><span><strong>ท่อนตอนนี้ และท่อนถัดไปในอีกกี่วินาที</strong> (เฉพาะเพลงจากโปรเจกต์)</span></li>
+        <li><b>3</b><span><strong>เวลาที่เล่นไป · เวลาที่เหลือ</strong> และแถบความคืบหน้า</span></li>
+        <li><b>4</b><span><strong>เพลงถัดไป</strong> และจะเล่นต่อทันทีหรือหยุดรอ</span></li>
+        <li><b>5</b><span><strong>ปุ่มใหญ่</strong> ก่อนหน้า (หรือกลับต้นเพลง) · เล่น/หยุดชั่วคราว · ถัดไป · หยุด</span></li>
+        <li><b>6</b><span><strong>รายการเพลง</strong> เปิดปิดด้วยปุ่ม <span class="ui">รายการเพลง</span> มุมขวาบน · ตอนหยุดอยู่ แตะเพลงเพื่อเลือกเป็นเพลงถัดไป · ระหว่างเล่นต้องแตะ<strong>สองครั้ง</strong>ถึงจะเปลี่ยนเพลงทันที กันมือโดนพลาด · ↑ ↓ ย้ายลำดับ · <span class="ui">+ เพิ่มเพลง</span> เพิ่มจากคลังหรือเพลย์ลิสต์อื่นได้กลางโชว์</span></li>
+        <li><b>7</b><span><strong>ตั้งแป้น MIDI · ล็อกจอ · ออกจากโหมดโชว์</strong></span></li>
+        <li><b>8</b><span><strong>ชื่อเพลย์ลิสต์ · เพลงที่เท่าไหร่ · นาฬิกา</strong></span></li>
+      </ol>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>คีย์ในโหมดโชว์</th><th>ทำอะไร</th></tr></thead>
+          <tbody>
+            <tr><td><kbd>Space</kbd> <kbd>Enter</kbd></td><td>เล่น / หยุดชั่วคราว</td></tr>
+            <tr><td><kbd>→</kbd> <kbd>↓</kbd> <kbd>PageDown</kbd></td><td>เพลงถัดไป</td></tr>
+            <tr><td><kbd>←</kbd> <kbd>↑</kbd> <kbd>PageUp</kbd></td><td>เพลงก่อนหน้า หรือกลับต้นเพลง</td></tr>
+            <tr><td><kbd>Esc</kbd></td><td>ออกจากโหมดโชว์ (ถ้าไม่ได้ล็อกจอ)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><strong>ล็อกจอ</strong> กด <span class="ui">ล็อกจอ</span> เมื่อพร้อมเล่น ปุ่มบนจอจะไม่ทำงานเมื่อแตะโดนพลาด ส่วนแป้นเหยียบและคีย์บอร์ดยังใช้ได้ตามปกติ จะปลดล็อกหรือออกต้อง<strong>กดค้างไว้ราว 1 วินาที</strong></p>
+      {{figure:show-locked::ตอนล็อกจอ ปุ่มเปลี่ยนเป็น "กดค้างเพื่อปลดล็อก" และ "กดค้างเพื่อออก"}}
+      <div class="warn"><strong>กันออกจากหน้าโดยไม่ตั้งใจ</strong>ระหว่างโหมดโชว์ ถ้ากดย้อนกลับ ปิดแท็บ หรือรีโหลด เบราว์เซอร์จะถามก่อน และเพลงจะไม่หยุดเพราะไปกดลิงก์อื่นในโปรแกรม</div>
+
+      <h3 id="show-pedal">5. แป้นเหยียบและ MIDI</h3>
+      <p><strong>แป้นเหยียบแบบบลูทูธหรือ USB สำหรับพลิกหน้าโน้ต</strong> ส่วนใหญ่ส่งเป็นปุ่ม PageDown/PageUp หรือลูกศร ใช้ได้ทันทีไม่ต้องตั้ง (แป้นขวา = เพลงถัดไป, แป้นซ้าย = ก่อนหน้า)</p>
+      <p><strong>แป้นหรือคอนโทรลเลอร์ MIDI</strong> กด <span class="ui">ตั้งแป้น MIDI</span> แล้วกด <span class="ui">ตั้งปุ่ม</span> ข้างคำสั่งที่ต้องการ จากนั้นเหยียบแป้นหรือกดปุ่มบนอุปกรณ์ โปรแกรมจะจำไว้ในเบราว์เซอร์นี้ รองรับโน้ต, CC และ Program Change ใช้ได้ใน Chrome หรือ Edge (Safari ไม่รองรับ MIDI)</p>
+      {{figure:show-midi::หน้าต่างตั้งแป้น MIDI: ตั้งได้ 3 คำสั่ง}}
+
+      <h3 id="trash-help">6. ถังขยะ</h3>
+      <p>ลบเพลง ไฟล์ที่นำเข้า หรือเพลย์ลิสต์ไปแล้ว ยังกู้คืนได้ภายใน 7 วัน ถังขยะอยู่ด้านล่างของหน้าแรก (ขึ้นเมื่อมีของในถัง)</p>
+      {{figure:trash::ถังขยะที่หน้าแรก มีเพลย์ลิสต์ที่เพิ่งลบ 1 รายการ}}
+      <ol class="legend">
+        <li><b>1</b><span><strong>กู้คืน</strong> เอากลับมาเหมือนเดิม รวมการแก้ทั้งหมด</span></li>
+        <li><b>2</b><span><strong>ลบถาวร</strong> (กดสองครั้ง) ลบทันทีและกู้คืนไม่ได้</span></li>
+        <li><b>3</b><span><strong>ล้างถังขยะทั้งหมด</strong> (กดสองครั้ง)</span></li>
+      </ol>
+      <div class="tip"><strong>ลบเพลงที่อยู่ในเพลย์ลิสต์</strong>เพลย์ลิสต์จะขึ้นว่า "ไม่พบต้นฉบับ" ที่เพลงนั้น พอกู้คืนจากถังขยะ เพลงก็กลับมาเล่นได้ตามเดิม</div>
+
+      <h3 id="before-show">7. เช็กลิสต์ก่อนขึ้นเวที</h3>
+      <ol class="steps">
+        <li>เล่นเพลย์ลิสต์ทั้งเซ็ตหนึ่งรอบ ทุกเพลงจะถูกเตรียมเสียงไว้ล่วงหน้า วันงานเริ่มได้ทันที</li>
+        <li>เช็กว่าเพลงที่ต้องหยุดรอ (พิธีกรพูด เปลี่ยนเครื่อง) เปิด <span class="ui">หยุดหลังเพลงนี้</span> ไว้แล้ว</li>
+        <li>เสียบสายออก audio interface ตั้งให้เมโทรนอมกับ cue ออกฝั่งหูฟังของวง (หัวข้อ 3 ปุ่มลัด "คิว+เมโทรนอม ซ้าย · ดนตรี ขวา")</li>
+        <li>ต่อสายชาร์จ Mac และปิดการแจ้งเตือน (โหมดห้ามรบกวน)</li>
+        <li>เข้าโหมดโชว์ ลองแป้นเหยียบทุกปุ่ม แล้วกด <span class="ui">ล็อกจอ</span></li>
+      </ol>
+    </section>
+
+    <div class="next">
+      <strong>จบคู่มือ</strong>
+      <p>ครบทั้ง 4 phase แล้ว ถ้าเจอปุ่มหรือข้อความในโปรแกรมที่ไม่ตรงกับคู่มือ แปลว่าโปรแกรมอัปเดตแล้ว แจ้งเพื่อปรับคู่มือได้เลย</p>
+    </div>
+  </main>
+</div>

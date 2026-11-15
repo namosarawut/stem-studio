@@ -86,6 +86,8 @@ Browser (vanilla JS, ไม่มี build)  ──HTTP──▶  FastAPI (app/m
 | `static/style.css` | ~550 | สไตล์ทั้งหมด (คลาส `.pl-*` ของเพลย์ลิสต์) |
 | `start.command` | 48 | ตัวเปิดดับเบิลคลิก: หา Python 3.10–3.12, สร้าง `.venv`, เปิดเบราว์เซอร์ |
 | `tools/promo/` | | สคริปต์ทำภาพ/วิดีโอโปรโมต (§11) |
+| `docs/manual/` | | คู่มือผู้ใช้ภาษาไทยแบบมีภาพ 4 phase (หน้า HTML เปิดจากไฟล์ได้) |
+| `tools/manual/` | | ต้นฉบับคู่มือ (`template.html`, `meta.json`) และสคริปต์สร้างหน้า/ถ่ายภาพ ดู README ในโฟลเดอร์ เมื่อเปลี่ยนข้อความหรือปุ่มใน UI ให้แก้คู่มือด้วย |
 
 dependency หลัก (`requirements.txt`): torch 2.2–2.8, demucs 4.0.1, audio-separator[cpu] 0.45.0, librosa, fastapi, uvicorn, soundfile, scipy, numpy<2.4, imageio-ffmpeg, psutil
 
