@@ -28,7 +28,7 @@ jobs:
           .venv\Scripts\python -m pip install -r requirements.txt
 
       - name: Same import check as start.bat
-        run: .venv\Scripts\python -c "import demucs, fastapi, librosa, audio_separator, psutil, anthropic"
+        run: .venv\Scripts\python -c "import demucs, fastapi, librosa, audio_separator, psutil"
 
       - name: Voices Windows offers to cues
         run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File app\winspeech.ps1 -Mode list

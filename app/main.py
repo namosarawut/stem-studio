@@ -8,6 +8,7 @@ import os
 import queue
 import re
 import shutil
+import sys
 import threading
 import time
 import traceback
@@ -38,7 +39,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse  # no
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
-from . import assistant, cues as cue_track, fsutil, gridfix, midi, playlists, project, separator, trash, warp  # noqa: E402
+from . import clickcheck, cues as cue_track, fsutil, gridfix, midi, playlists, project, separator, trash, warp  # noqa: E402
 from .analyzer import ANALYSIS_VERSION, STEM_THAI, _peaks, analyze  # noqa: E402
 from .metronome import render_click  # noqa: E402
 from .monitor import ResourceMonitor  # noqa: E402
@@ -55,6 +56,24 @@ work_queue: queue.Queue[str] = queue.Queue()
 DEVICE = separator.pick_device()
 
 
+# Who last changed each song, so an open page can tell a change from Claude (the MCP
+# server, app/mcp_server.py) or another tab from its own. Clients name themselves in the
+# X-Prism-Client header; kept in memory, newest few per song.
+SONG_WRITE = re.compile(r"^/api/jobs/([0-9a-f]{12})(/|$)")
+NOT_EDITS = ("/click/repair", "/click/inspect", "/playback")
+song_changes: dict[str, list[tuple[int, str]]] = {}
+change_counter = [0]
+changes_lock = threading.Lock()
+
+
+def note_change(job_id: str, by: str) -> None:
+    with changes_lock:
+        change_counter[0] += 1
+        log = song_changes.setdefault(job_id, [])
+        log.append((change_counter[0], by[:40]))
+        del log[:-20]
+
+
 @app.middleware("http")
 async def local_only(request: Request, call_next):
     """Block other websites from driving this server through the visitor's browser,
@@ -64,6 +83,10 @@ async def local_only(request: Request, call_next):
     if host not in ALLOWED_HOSTS or (origin and urlparse(origin).hostname not in ALLOWED_HOSTS):
         return JSONResponse({"detail": "อนุญาตเฉพาะการเรียกจากเครื่องนี้"}, status_code=403)
     response = await call_next(request)
+    if request.method not in ("GET", "HEAD") and response.status_code < 400:
+        match = SONG_WRITE.match(request.url.path)
+        if match and not request.url.path.endswith(NOT_EDITS):
+            note_change(match.group(1), request.headers.get("x-prism-client") or "")
     # Make browsers revalidate, or an update can pair an old page with new code.
     if not request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-cache"
@@ -304,6 +327,21 @@ def system_info() -> dict:
         "device_label": separator.device_label(DEVICE),
         "models": [{"id": key, **value} for key, value in separator.MODELS.items()],
     }
+
+
+@app.get("/api/mcp-setup")
+def mcp_setup() -> dict:
+    """What to paste into Claude Desktop or Claude Code to reach this Prism (app/mcp_server.py),
+    with this machine's paths filled in."""
+    python = sys.executable
+    port = os.environ.get("STEM_STUDIO_PORT", "8765")
+    env = {"PYTHONPATH": str(ROOT), "STEM_STUDIO_PORT": port}
+    desktop = {"mcpServers": {"prism": {"command": python, "args": ["-m", "app.mcp_server"], "env": env}}}
+    windows = sys.platform == "win32"
+    config = (r"%APPDATA%\Claude\claude_desktop_config.json" if windows
+              else "~/Library/Application Support/Claude/claude_desktop_config.json")
+    code = f'claude mcp add prism --scope user -e PYTHONPATH="{ROOT}" -e STEM_STUDIO_PORT={port} -- "{python}" -m app.mcp_server'
+    return {"desktop_json": json.dumps(desktop, ensure_ascii=False, indent=2), "desktop_config_path": config, "code_command": code}
 
 
 STARTED = f"{time.time():.6f}"
@@ -571,76 +609,42 @@ def repair_click(job_id: str, request: RepairRequest) -> dict:
     }
 
 
-class AssistKey(BaseModel):
-    key: str
+@app.get("/api/jobs/{job_id}/changes")
+def song_change_log(job_id: str, since: int = 0) -> dict:
+    """Changes to this song after `since`, and by whom (see note_change)."""
+    with changes_lock:
+        log = song_changes.get(job_id, [])
+        return {"latest": change_counter[0], "changes": [{"seq": seq, "by": by} for seq, by in log if seq > since]}
 
 
-assist_lock = threading.Lock()
-
-
-@app.get("/api/assistant")
-def assistant_status() -> dict:
-    """Whether Claude can be asked, and where the credential comes from (never the key)."""
-    via = assistant.backend()
-    return {"ready": via is not None, "via": via, "source": assistant.credential_source(), "model": assistant.MODEL,
-            "cli_installed": assistant.claude_cli() is not None}
-
-
-@app.put("/api/assistant/key")
-def assistant_save_key(request: AssistKey) -> dict:
-    try:
-        assistant.save_key(request.key)
-    except assistant.AssistantError as error:
-        raise HTTPException(422, str(error))
-    return assistant_status()
-
-
-@app.delete("/api/assistant/key")
-def assistant_forget_key() -> dict:
-    assistant.forget_key()
-    return assistant_status()
-
-
-@app.post("/api/jobs/{job_id}/click/assist")
-def assist_click(job_id: str, request: RepairRequest) -> dict:
-    """Ask Claude to fix the metronome (opt-in, sends beat and hit times to Anthropic). The
-    result is a proposal for the editor, like the automatic repair; nothing is saved."""
+@app.get("/api/jobs/{job_id}/click/inspect")
+def inspect_click(job_id: str, start: float | None = None, end: float | None = None, bpm: float | None = None) -> dict:
+    """How the metronome sits on the drums (for the MCP server). With start/end: every beat
+    there with the nearest drum hit, and the drum and bass hits. Timeline times. Read only."""
     job = editable_job(job_id)
     folder = job_dir(job_id)
     edits = project.load_edits(folder)
-    refuse_when_locked(edits)
-    if assistant.backend() is None:
-        raise HTTPException(409, "ไม่พบ Claude Code ในเครื่อง และยังไม่ได้ตั้งค่า Claude API key")
-    if "drums" not in project.active_stems(job):
-        raise HTTPException(422, "เพลงนี้ไม่มีแทร็กกลอง")
-    if not request.beats or len(request.beats) > project.MAX_BEATS or not 1 <= request.meter <= 12:
-        raise HTTPException(422, "ข้อมูลเมโทรนอมไม่ถูกต้อง")
-    if not assist_lock.acquire(blocking=False):
-        raise HTTPException(409, "Claude กำลังดูเพลงอื่นอยู่ รอให้เสร็จก่อน")
-    try:
-        analysis = read_analysis_file(job_id)
-        drum_times, drum_strength = gridfix.onsets(project.stem_path(folder, "drums"))
-        bass_times, bass_strength = (gridfix.onsets(project.stem_path(folder, "bass"))
-                                     if "bass" in project.active_stems(job) else (np.array([]), np.array([])))
-        on_timeline = lambda times: np.asarray([project.to_timeline(edits, float(t)) for t in times])  # noqa: E731
-        drum_times, bass_times = on_timeline(drum_times), on_timeline(bass_times)
-        strong = drum_strength > gridfix.HIT_STRENGTH
-        bpm = request.bpm or 60.0 * (len(request.beats) - 1) / (max(request.beats) - min(request.beats))
-        bench = assistant.Workbench(
-            request.beats, request.downbeats, request.meter, bpm,
-            drum_times[strong], bass_times[bass_strength > gridfix.HIT_STRENGTH] if len(bass_times) else bass_times,
-            drum_strength[strong], bass_strength[bass_strength > gridfix.HIT_STRENGTH] if len(bass_times) else bass_strength,
-            [{"label": s["label"], "start": round(project.to_timeline(edits, s["start"]), 2), "end": round(project.to_timeline(edits, s["end"]), 2)}
-             for s in analysis.get("sections", [])],
-            project.to_timeline(edits, analysis["duration"]),
-        )
-        try:
-            result = assistant.run(bench)
-        except assistant.AssistantError as error:
-            raise HTTPException(502, str(error))
-    finally:
-        assist_lock.release()
-    return {**result, "beats": bench.beats, "downbeats": sorted(bench.downs), "meter": bench.meter}
+    analysis = read_analysis_file(job_id)
+    grid = project.timeline_grid(analysis, edits)
+    stems = project.active_stems(job)
+    on_timeline = lambda times: np.asarray([project.to_timeline(edits, float(t)) for t in times])  # noqa: E731
+    hits = {}
+    for name in ("drums", "bass"):
+        if name in stems:
+            times, strength = gridfix.onsets(project.stem_path(folder, name))
+            strong = strength > gridfix.HIT_STRENGTH
+            hits[name] = (on_timeline(times[strong]), strength[strong])
+        else:
+            hits[name] = (np.array([]), np.array([]))
+    if bpm is not None and not (math.isfinite(bpm) and 30 <= bpm <= 300):
+        raise HTTPException(422, "ความเร็วไม่ถูกต้อง")
+    result = {"has_drums": "drums" in stems, "overview": clickcheck.overview(grid["beats"], grid["downbeats"], grid["meter"], hits["drums"][0], bpm)}
+    if start is not None:
+        if not math.isfinite(start) or (end is not None and not math.isfinite(end)):
+            raise HTTPException(422, "ช่วงไม่ถูกต้อง")
+        result["window"] = clickcheck.beats_near(grid["beats"], grid["downbeats"], start, end if end is not None else start + 20,
+                                                 *hits["drums"], *hits["bass"])
+    return result
 
 
 @app.delete("/api/jobs/{job_id}/click")

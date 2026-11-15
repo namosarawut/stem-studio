@@ -575,7 +575,7 @@ select.edit-input { width: auto; font-family: var(--sans); }
 /* Trim before separating */
 .trim-dialog { width: min(760px, calc(100vw - 32px)); }
 .trim-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.trim-body { display: grid; gap: 12px; padding: 14px; overflow-y: auto; }
+.trim-body { display: grid; gap: 12px; padding: 14px; overflow-y: auto; min-height: 0; }
 .trim-hint { margin: 0; color: var(--muted); font-size: 13.5px; }
 .trim-wave { height: 120px; cursor: pointer; touch-action: none; }
 .trim-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -593,10 +593,16 @@ select.edit-input { width: auto; font-family: var(--sans); }
 .lock-field { display: inline-flex; align-items: center; gap: 6px; }
 .lock-bpm { width: 72px; }
 
-/* Ask Claude */
+/* Wider dialogs (steady click, add a sound, connect Claude) */
 .claude-dialog { width: min(640px, calc(100vw - 32px)); }
-.claude-key { flex: 1; min-width: 200px; }
 .claude-facts { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13.5px; display: grid; gap: 4px; }
+.connect-block { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.connect-steps { margin: 0; padding-left: 20px; list-style: decimal; color: var(--muted); font-size: 13.5px; display: grid; gap: 4px; }
+.connect-steps b { color: var(--text); font-weight: 600; }
+.connect-code { position: relative; }
+.connect-code pre { margin: 0; padding: 12px 84px 12px 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line);
+  font: 12.5px/1.55 var(--mono); white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow: auto; }
+.connect-code .chip { position: absolute; top: 8px; right: 8px; }
 .claude-explanation { margin: 0; white-space: pre-wrap; line-height: 1.7; }
 
 /* Show mode: the setlist player on stage */

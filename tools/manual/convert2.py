@@ -37,7 +37,7 @@ def bands(img, b, x0, x1, s):
     return out
 
 still("metro-panel", crop=(0, 225, 1440, 1128))
-still("claude")
+still("connect")
 still("steady-choose")
 site["steady-choose"]["marks"] = [{"n": 1, "x": 31, "y": 43.6}, {"n": 2, "x": 28.5, "y": 55}, {"n": 3, "x": 98.2, "y": 79}]  # beside, not on, the controls
 still("steady-result", drop=(1,))

@@ -134,7 +134,7 @@
         <li><a href="#metro-repair">ซ่อมจุดที่เพี้ยน</a></li>
         <li><a href="#steady">ทำคลิกให้นิ่ง</a></li>
         <li><a href="#lock">ล็อกความเร็วเอง</a></li>
-        <li><a href="#claude">ให้ Claude ช่วยดู</a></li>
+        <li><a href="#claude">ให้ Claude แก้ให้ (MCP)</a></li>
         <li><a href="#tempomap">Tempo map สำหรับ DAW</a></li>
       </ol>
       <a class="phase on" href="#phase-3"><small>Phase 3</small><strong>cue · ช่วงนับ · แทร็กเพิ่ม</strong></a>
@@ -202,7 +202,7 @@
         <li><b>1</b><span><strong>ช่องวางไฟล์</strong> ลากไฟล์เพลงมาวาง หรือคลิกเพื่อเลือกไฟล์ รองรับ MP3, WAV, FLAC, M4A, AAC, OGG, AIFF และไฟล์วิดีโอ MP4/MOV (ใช้เฉพาะเสียง) ขนาดไม่เกิน 1 GB</span></li>
         <li><b>2</b><span><strong>เลือกโมเดล</strong> เลือก<em>ก่อน</em>วางไฟล์ (ดูตารางด้านล่าง)</span></li>
         <li><b>3</b><span><strong>เพลงของคุณ</strong> คลิกชื่อเพลงเพื่อเปิด ช่องค้นหาด้านบนค้นได้ทั้งชื่อเพลง คีย์ และ BPM ปุ่ม "ลบ" จะย้ายเพลงไปถังขยะ (กู้คืนได้ 7 วัน ดูใน Phase 4)</span></li>
-        <li><b>4</b><span><strong>เพลย์ลิสต์</strong> ไปหน้าเพลย์ลิสต์สำหรับเล่นต่อกันบนเวที (Phase 4) ปุ่ม <span class="ui">คู่มือ</span> ข้างกันเปิดคู่มือนี้ในแท็บใหม่ ใช้ได้โดยไม่ต้องต่อเน็ต</span></li>
+        <li><b>4</b><span><strong>เพลย์ลิสต์</strong> ไปหน้าเพลย์ลิสต์สำหรับเล่นต่อกันบนเวที (Phase 4) ปุ่ม <span class="ui">คู่มือ</span> ข้างกันเปิดคู่มือนี้ในแท็บใหม่ ใช้ได้โดยไม่ต้องต่อเน็ต และปุ่ม <span class="ui">เชื่อมกับ Claude</span> ใช้ตั้งค่าให้ Claude แก้เพลงให้ (Phase 2 หัวข้อ 7)</span></li>
       </ol>
       <div class="tablewrap">
         <table>
@@ -313,7 +313,7 @@
             <tr><td>อัดกับคลิก ความเร็วเท่ากันทั้งเพลง</td><td>ฟังเมโทรนอมเทียบกลองสักรอบ ถ้าเพี้ยนบางจุดกด <span class="ui">ซ่อมจุดที่เพี้ยน</span> (หัวข้อ 4)</td></tr>
             <tr><td>เล่นสด หรืออัดโดยไม่มีคลิก มือกลองอยากได้คลิกนิ่งๆ</td><td><span class="ui">ทำคลิกให้นิ่ง</span> (หัวข้อ 5) ระบบซ่อมเมโทรนอมแล้วยืดเสียงทุกแทร็กให้ทุกบีตยาวเท่ากันในขั้นตอนเดียว</td></tr>
             <tr><td>อยากให้คลิกตามความช้าเร็วจริงของเพลง (ไม่ยืดเสียง)</td><td><span class="ui">ซ่อมจุดที่เพี้ยน</span> แล้วใช้ไฟล์ <span class="ui">Tempo map</span> ใน DAW (หัวข้อ 8)</td></tr>
-            <tr><td>ซ่อมอัตโนมัติแล้วยังไม่ตรงบางจุด</td><td>แก้เองทีละบีต (หัวข้อ 3) หรือ <span class="ui">ให้ Claude ช่วยดู</span> (หัวข้อ 7)</td></tr>
+            <tr><td>ซ่อมอัตโนมัติแล้วยังไม่ตรงบางจุด</td><td>แก้เองทีละบีต (หัวข้อ 3) หรือสั่ง Claude ให้แก้ผ่าน MCP (หัวข้อ 7)</td></tr>
           </tbody>
         </table>
       </div>
@@ -329,12 +329,12 @@
 
       <h3 id="metro-edit">3. แก้เมโทรนอมเอง</h3>
       <p>กดปุ่ม <span class="ui">แก้เมโทรนอม</span> ในแถบเครื่องมือ จะมีแผงแก้ไขขึ้นมาเหนือไทม์ไลน์ และเสียงคลิกจะเปิดให้เอง ทุกการแก้บันทึกอัตโนมัติ ไม่ต้องกดเซฟ</p>
-      <figure class="wide"><div class="shot"><a href="img/metro-panel.webp" target="_blank" rel="noopener" title="เปิดภาพขนาดเต็ม"><img src="img/metro-panel.webp" width="1440" height="903" alt="แผงแก้เมโทรนอม ซูมไว้ที่ 16× และเลือกจังหวะหนึ่งไว้ (ขีดสีแดง)" loading="lazy"></a><span class="mark" style="left:1.39%;top:1.79%" aria-hidden="true">1</span><span class="mark" style="left:29.72%;top:1.79%" aria-hidden="true">2</span><span class="mark" style="left:56.94%;top:1.79%" aria-hidden="true">3</span><span class="mark" style="left:70.3%;top:1.79%" aria-hidden="true">4</span><span class="mark" style="left:1.39%;top:5.99%" aria-hidden="true">5</span><span class="mark" style="left:1.39%;top:10.2%" aria-hidden="true">6</span><span class="mark" style="left:58.17%;top:85.06%" aria-hidden="true">7</span></div><figcaption>แผงแก้เมโทรนอม ซูมไว้ที่ 16× และเลือกจังหวะหนึ่งไว้ (ขีดสีแดง)</figcaption></figure>
+      <figure class="wide"><div class="shot"><a href="img/metro-panel.webp" target="_blank" rel="noopener" title="เปิดภาพขนาดเต็ม"><img src="img/metro-panel.webp" width="1440" height="903" alt="แผงแก้เมโทรนอม ซูมไว้ที่ 16× และเลือกจังหวะหนึ่งไว้ (ขีดสีแดง)" loading="lazy"></a><span class="mark" style="left:1.39%;top:1.79%" aria-hidden="true">1</span><span class="mark" style="left:29.72%;top:1.79%" aria-hidden="true">2</span><span class="mark" style="left:56.94%;top:1.79%" aria-hidden="true">3</span><span class="mark" style="left:78.18%;top:1.79%" aria-hidden="true">4</span><span class="mark" style="left:1.39%;top:5.99%" aria-hidden="true">5</span><span class="mark" style="left:1.39%;top:10.2%" aria-hidden="true">6</span><span class="mark" style="left:58.17%;top:85.06%" aria-hidden="true">7</span></div><figcaption>แผงแก้เมโทรนอม ซูมไว้ที่ 16× และเลือกจังหวะหนึ่งไว้ (ขีดสีแดง)</figcaption></figure>
       <ol class="legend">
         <li><b>1</b><span><strong>ขยับทั้งเส้น</strong> เลื่อนทุกคลิกพร้อมกันทีละ 1, 10 หรือ 50 มิลลิวินาที ใช้เมื่อคลิกมาก่อนหรือหลังกลองเท่าๆ กันทั้งเพลง</span></li>
         <li><b>2</b><span><strong>BPM</strong> ใส่ความเร็วแล้วกด <span class="ui">ตั้งเป็นจังหวะคงที่</span> สำหรับเพลงที่อัดกับคลิกมา ถ้าเพลงช้าเร็วไม่เท่ากัน ระบบจะเตือนก่อนและแนะนำ "ทำคลิกให้นิ่ง" แทน ปุ่ม <kbd>×2</kbd> <kbd>÷2</kbd> ใช้เมื่อเมโทรนอมนับเร็วหรือช้าไปเท่าตัว</span></li>
         <li><b>3</b><span><strong>อัตราจังหวะ</strong> 2/4, 3/4, 4/4, 5/4, 6/8, 7/8, 12/8 เปลี่ยนแล้วเส้นห้องจะจัดใหม่ทั้งเพลง</span></li>
-        <li><b>4</b><span><strong>ปุ่มช่วยแก้</strong> <span class="ui">ให้ Claude ช่วยดู</span>, <span class="ui">ซ่อมจุดที่เพี้ยน</span>, <span class="ui">ย้อนกลับ</span> (ย้อนได้หลายขั้น) และ <span class="ui">คืนค่าอัตโนมัติ</span> (ทิ้งการแก้ทั้งหมด กลับไปใช้เมโทรนอมที่ AI สร้าง)</span></li>
+        <li><b>4</b><span><strong>ปุ่มช่วยแก้</strong> <span class="ui">ซ่อมจุดที่เพี้ยน</span>, <span class="ui">ย้อนกลับ</span> (ย้อนได้หลายขั้น) และ <span class="ui">คืนค่าอัตโนมัติ</span> (ทิ้งการแก้ทั้งหมด กลับไปใช้เมโทรนอมที่ AI สร้าง)</span></li>
         <li><b>5</b><span><strong>ความเร็วแต่ละช่วง</strong> คลิกช่วงไหนก็เลือกช่วงนั้น แล้วใส่ BPM ในช่อง 2 เพื่อตั้งความเร็วเฉพาะช่วง หรือกด <span class="ui">เกลี่ยให้ห่างเท่ากัน</span> ให้ทุกจังหวะในช่วงห่างเท่ากันโดยไม่ขยับขอบช่วง</span></li>
         <li><b>6</b><span><strong>จังหวะที่เลือก</strong> บอกว่าเป็นจังหวะที่เท่าไหร่ อยู่เวลาไหน ปุ่ม −5 −1 +1 +5 ขยับทีละมิลลิวินาที, <span class="ui">ตั้งเป็นจังหวะที่ 1</span> ให้ห้องเริ่มที่จังหวะนี้ (ห้องถัดๆ ไปจัดตาม), <span class="ui">ลบจังหวะนี้</span> และติ๊ก <span class="ui">ขยับจังหวะถัดไปด้วย</span> เพื่อให้จังหวะหลังจากนี้เลื่อนตามไปทั้งหมด</span></li>
         <li><b>7</b><span><strong>แถวเมโทรนอม</strong> ขีดยาวคือจังหวะที่ 1 ของห้อง ขีดสั้นคือจังหวะอื่น ขีดสีแดงคือจังหวะที่เลือกอยู่</span></li>
@@ -361,7 +361,7 @@
           <tbody>
             <tr><td>ซ่อม N จุด: … เพิ่ม/ลบ … บีต</td><td>แก้ให้แล้ว ฟังจุดที่บอกอีกรอบ ไม่ชอบก็กด <span class="ui">ย้อนกลับ</span></td></tr>
             <tr><td>ไม่เจอจุดที่ต้องซ่อม เมโทรนอมตรงกับกลองดีแล้ว</td><td>ไม่พบบีตที่หลุดจากกลอง</td></tr>
-            <tr><td>เจอจุดที่เพี้ยนแต่ซ่อมเองไม่ได้ ที่ …</td><td>มักเป็นช่วงที่กลองไม่ตี (เบรก ท่อนเปียโน) ระบบเลยไม่มีอะไรให้เทียบ แก้เองตามหัวข้อ 3 หรือให้ Claude ช่วยดู</td></tr>
+            <tr><td>เจอจุดที่เพี้ยนแต่ซ่อมเองไม่ได้ ที่ …</td><td>มักเป็นช่วงที่กลองไม่ตี (เบรก ท่อนเปียโน) ระบบเลยไม่มีอะไรให้เทียบ แก้เองตามหัวข้อ 3 หรือให้ Claude แก้ผ่าน MCP (หัวข้อ 7)</td></tr>
           </tbody>
         </table>
       </div>
@@ -397,16 +397,24 @@
       <p>ถ้าแก้เมโทรนอมเองจนพอใจแล้ว และอยากล็อกโดยไม่ให้ระบบซ่อมอะไรเพิ่ม ใส่ความเร็วในช่อง <span class="ui">ล็อกความเร็ว</span> แล้วกด <span class="ui">ล็อก</span> ช่องนี้ใส่ค่าเฉลี่ยของเพลงไว้ให้แล้ว</p>
       <p>ถ้ามีจุดที่ต้องยืดเสียงเกิน 15% (มักเพราะเมโทรนอมบีตเกินหรือขาดตรงนั้น) ระบบจะไม่ล็อก และบอกเวลาของจุดนั้น ให้แก้จุดนั้นก่อน หรือกด <span class="ui">ซ่อมจุดที่เพี้ยน</span> แล้วล็อกใหม่</p>
 
-      <h3 id="claude">7. ให้ Claude ช่วยดู (ไม่บังคับ)</h3>
-      <p>สำหรับจุดที่ซ่อมอัตโนมัติไม่ได้ ปุ่ม <span class="ui">ให้ Claude ช่วยดู</span> ในแผงแก้เมโทรนอมจะส่งตัวเลขจังหวะไปให้ Claude ช่วยวิเคราะห์ เป็นฟีเจอร์เดียวของ Prism ที่ส่งข้อมูลออกนอกเครื่อง และจะส่งก็ต่อเมื่อคุณกดยืนยันเท่านั้น</p>
-      <figure><div class="shot"><a href="img/claude.webp" target="_blank" rel="noopener" title="เปิดภาพขนาดเต็ม"><img src="img/claude.webp" width="656" height="270" alt="หน้าต่างยืนยันก่อนส่งให้ Claude บอกชัดว่าส่งอะไรไปบ้าง" loading="lazy"></a></div><figcaption>หน้าต่างยืนยันก่อนส่งให้ Claude บอกชัดว่าส่งอะไรไปบ้าง</figcaption></figure>
+      <h3 id="claude">7. ให้ Claude แก้ให้ผ่าน MCP (ไม่บังคับ)</h3>
+      <p>เชื่อม Prism กับ Claude Desktop หรือ Claude Code แล้วสั่งเป็นภาษาพูดได้เลย Claude จะเปิดเพลงที่แยกไว้ ตรวจเมโทรนอมเทียบกับเสียงกลองทีละบีต แล้วแก้ให้ ใช้ได้ทั้งเรื่องเมโทรนอม cue ช่วงนับ และการล็อกความเร็ว เหมาะกับเพลงที่ทำไว้แล้วแต่คลิกยังไม่ตรง หรือยังไม่ได้ใส่ cue</p>
+      <p><strong>ตั้งค่าครั้งเดียว</strong></p>
       <ol class="steps">
-        <li>ครั้งแรกต้องมีอย่างใดอย่างหนึ่ง: <strong>Claude Code</strong> ที่ล็อกอินไว้ในเครื่อง (เปิด Terminal พิมพ์ <code>claude auth login</code>) หรือ <strong>API key</strong> จาก console.anthropic.com ใส่ในหน้าต่างนี้ (key เก็บไว้ในเครื่องเท่านั้น)</li>
-        <li>กด <span class="ui">ส่งให้ Claude</span> แล้วรอ 1–3 นาที ระหว่างรอปิดหน้าต่างไปทำอย่างอื่นได้</li>
-        <li>อ่านคำอธิบายว่า Claude แก้อะไรไป และล็อกผ่านไหม แล้วกด <span class="ui">ใช้ผลนี้</span> หรือ <span class="ui">ไม่ใช้</span></li>
-        <li>ฟังจุดที่แก้ ถ้าไม่ชอบกด <span class="ui">ย้อนกลับ</span> ในแผงแก้เมโทรนอม</li>
+        <li>ที่หน้าแรกของ Prism กด <span class="ui">เชื่อมกับ Claude</span> จะได้ข้อความพร้อมที่อยู่ไฟล์ของเครื่องคุณ</li>
+        <li><strong>Claude Desktop:</strong> เปิด Settings → Developer → Edit Config วางข้อความในกล่องแรก (กด <span class="ui">คัดลอก</span>) บันทึก แล้วปิดเปิด Claude Desktop ใหม่</li>
+        <li><strong>Claude Code:</strong> คัดลอกคำสั่งในกล่องที่สองไปรันใน Terminal ครั้งเดียว</li>
       </ol>
-      <div class="tip"><strong>ส่งอะไรออกไปบ้าง</strong>เฉพาะตัวเลข: เวลาของบีต เวลาที่กลองกับเบสตี และชื่อท่อน ไม่ส่งไฟล์เสียงและไม่ส่งชื่อเพลง ถ้าใช้ Claude Code กับแพ็กเกจ Claude จะนับรวมในโควตาการใช้งาน ถ้าใช้ API key เสียค่าใช้จ่ายราว $0.1–0.6 ต่อครั้ง</div>
+      <figure><div class="shot"><a href="img/connect.webp" target="_blank" rel="noopener" title="เปิดภาพขนาดเต็ม"><img src="img/connect.webp" width="656" height="656" alt="หน้าต่างเชื่อมกับ Claude (ในภาพใช้ที่อยู่ตัวอย่าง เครื่องคุณจะเห็นที่อยู่จริง)" loading="lazy"></a></div><figcaption>หน้าต่างเชื่อมกับ Claude (ในภาพใช้ที่อยู่ตัวอย่าง เครื่องคุณจะเห็นที่อยู่จริง)</figcaption></figure>
+      <p><strong>วิธีใช้</strong></p>
+      <ol class="steps">
+        <li>เปิด Prism ค้างไว้ (ดับเบิลคลิก <code>start.command</code> หรือ <code>start.bat</code>)</li>
+        <li>พิมพ์บอก Claude เช่น "ซ่อมเมโทรนอมให้ตรงกลอง", "ห้องแรกเริ่มผิดที่ แก้ให้หน่อย", "ใส่ cue ก่อนทุกท่อน", "เติมนับเข้า 1 ห้องก่อนฮุกหนึ่ง" หรือ "ทำคลิกให้นิ่งที่ 168"</li>
+        <li>Claude จะให้เลือกเพลง ถ้าแอปรองรับ จะเด้งรายการเพลงให้คลิกเลือก ไม่งั้น Claude จะแสดงรายชื่อแล้วถาม</li>
+        <li>Claude แก้และบันทึกให้ทันที เพลงที่เปิดอยู่ในหน้า Prism จะขึ้นแถบ "Claude แก้เพลงนี้แล้ว" กด <span class="ui">โหลดเพลงใหม่</span> แล้วฟังจุดที่ Claude บอก</li>
+        <li>ไม่ชอบผล บอก Claude ว่า "ย้อนกลับ" ได้เลย ย้อนได้ทีละขั้นจนกลับเป็นเหมือนก่อนเริ่ม</li>
+      </ol>
+      <div class="tip"><strong>Claude เห็นอะไรบ้าง</strong>เฉพาะสิ่งที่ Prism ส่งให้ คือชื่อเพลง ท่อน cue และตัวเลขเวลาของบีตกับเสียงกลองและเบส ไม่มีไฟล์เสียง การใช้งานนับรวมในโควตาบัญชี Claude ของคุณ</div>
 
       <h3 id="tempomap">8. Tempo map สำหรับ DAW</h3>
       <p>ปุ่ม <span class="ui">Tempo map</span> บนแถบด้านบนดาวน์โหลดไฟล์ <code>tempo.mid</code> (มีอยู่ใน ZIP ของ "ดาวน์โหลด stem" ด้วย) ข้างในเป็นความเร็วของทุกบีต อัตราจังหวะ ชื่อท่อนเป็น marker และโน้ตคลิก ใช้ให้ grid ของ DAW ตรงกับเพลง จะได้ตัดต่อ วางลูป หรือเพิ่มโน้ต MIDI ตามห้องได้ตรง</p>

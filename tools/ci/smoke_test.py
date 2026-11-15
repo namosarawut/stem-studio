@@ -101,6 +101,43 @@ class SlowDownload:
         return self.head + rest
 
 
+def mcp_checks(job_id: str, has_voices: bool) -> None:
+    """Drive app/mcp_server.py over stdio as Claude would."""
+    mcp = subprocess.Popen([sys.executable, "-m", "app.mcp_server"], cwd=ROOT, text=True, encoding="utf-8",
+                           stdin=subprocess.PIPE, stdout=subprocess.PIPE, env={**os.environ, "STEM_STUDIO_PORT": str(PORT)})
+    counter = [0]
+
+    def rpc(method: str, params: dict) -> dict:
+        counter[0] += 1
+        mcp.stdin.write(json.dumps({"jsonrpc": "2.0", "id": counter[0], "method": method, "params": params}) + "\n")
+        mcp.stdin.flush()
+        while True:
+            message = json.loads(mcp.stdout.readline())
+            if message.get("id") == counter[0]:
+                return message
+
+    def tool(name: str, args: dict) -> tuple[bool, str]:
+        result = rpc("tools/call", {"name": name, "arguments": args})["result"]
+        return not result["isError"], result["content"][0]["text"]
+
+    try:
+        init = rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "smoke", "version": "0"}})
+        check(init["result"]["serverInfo"]["name"] == "prism", "MCP server starts")
+        check(tool("choose_song", {"song_id": job_id})[0], "MCP: choose the song")
+        ok, text = tool("check_metronome", {})
+        check(ok and '"overview"' in text, "MCP: check the metronome")
+        check(tool("shift_metronome", {"ms": 5})[0], "MCP: change the metronome")
+        if has_voices:
+            check(tool("add_cue", {"time": 4, "text": "Chorus"})[0], "MCP: add a cue")
+            check(tool("undo", {})[0], "MCP: undo the cue")
+        check(tool("undo", {})[0], "MCP: undo the metronome change")
+        status, body = call("GET", f"/api/jobs/{job_id}/changes?since=0")
+        check(any(c["by"] == "claude" for c in json.loads(body)["changes"]), "changes from MCP are marked as Claude's")
+    finally:
+        mcp.stdin.close()
+        mcp.wait(20)
+
+
 def main() -> int:
     data = Path(tempfile.mkdtemp(prefix="prism-smoke-")) / "data"
     env = {**os.environ, "STEM_STUDIO_DATA": str(data)}
@@ -183,6 +220,7 @@ def main() -> int:
         status, body = call("PUT", f"/api/jobs/{job_id}/tempo-lock", {"bpm": bpm, "position": 0})
         check(status == 200, f"lock the tempo at {bpm} BPM" + ("" if status == 200 else f": {body[:200].decode('utf-8', 'replace')}"))
         check(call("PUT", f"/api/jobs/{job_id}/tempo-lock", {"bpm": None, "position": 0})[0] == 200, "unlock the tempo")
+        mcp_checks(job_id, bool(voices))
     finally:
         server.terminate()
         try:

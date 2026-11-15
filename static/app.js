@@ -52,8 +52,12 @@ function toast(message) {
   toastTimer = setTimeout(() => { box.hidden = true; }, Math.max(4500, message.length * 70));
 }
 
-async function api(path, options) {
-  const response = await fetch(path, options);
+// Names this page in every request, so a song changed by Claude (MCP) or another tab can
+// be told apart from this page's own saves (see note_change in app/main.py).
+const PAGE_ID = `page-${Math.random().toString(36).slice(2, 10)}`;
+
+async function api(path, options = {}) {
+  const response = await fetch(path, { ...options, headers: { ...(options.headers ?? {}), "X-Prism-Client": PAGE_ID } });
   if (!response.ok) {
     let detail = `เซิร์ฟเวอร์ตอบกลับ ${response.status}`;
     try { detail = (await response.json()).detail || detail; } catch { /* non-JSON error body */ }
@@ -2108,110 +2112,6 @@ async function showStudio(job, keep = null) {
     afterGridChange();
   }, on);
   $("beat-delete").addEventListener("click", () => { if (selectedBeat !== null) deleteBeat(selectedBeat); }, on);
-  // ---- ask Claude (opt-in, app/assistant.py): a proposal for the editor, never saved by itself
-  const claude = { mode: null, result: null, busy: false };
-  $("metro-claude").hidden = !mixer.tracks.has("drums");
-  function claudeShow(mode) {
-    claude.mode = mode;
-    for (const [id, m] of [["claude-setup", "setup"], ["claude-confirm", "confirm"], ["claude-working", "working"], ["claude-result", "result"]]) $(id).hidden = m !== mode;
-    $("claude-go").hidden = mode === "setup" || mode === "working";
-    $("claude-go").textContent = mode === "result" ? "ใช้ผลนี้" : "ส่งให้ Claude";
-    $("claude-cancel").textContent = mode === "result" ? "ไม่ใช้" : mode === "working" ? "ปิด" : "ยกเลิก";
-    if (!$("claude-dialog").open) $("claude-dialog").showModal();
-  }
-  async function claudeOpen() {
-    if (claude.busy) return claudeShow("working");
-    if (claude.result) return claudeShow("result");
-    try {
-      const status = await api("/api/assistant");
-      $("claude-forget-key").hidden = status.source !== "file" || status.via === "cli";
-      $("claude-setup-text").textContent = status.cli_installed
-        ? "เครื่องนี้มี Claude Code แล้ว แต่ยังไม่ได้ล็อกอิน เปิด Terminal พิมพ์ claude auth login แล้วล็อกอินด้วยบัญชี Claude ของคุณ จากนั้นกดปุ่มนี้อีกครั้ง ไม่ต้องใช้ key"
-        : "ยังไม่มี Claude Code ในเครื่องนี้ ติดตั้ง Claude Code แล้วเปิด Terminal พิมพ์ claude auth login เพื่อล็อกอินด้วยบัญชี Claude ของคุณ จากนั้นกดปุ่มนี้อีกครั้ง";
-      $("claude-via").textContent = status.via === "cli"
-        ? "ใช้ Claude Code ที่ล็อกอินไว้ในเครื่องนี้ ไม่ต้องใช้ key ถ้าใช้แพ็กเกจ Claude จะนับรวมในโควตาการใช้งาน ใช้เวลา 1–3 นาที"
-        : "ใช้ Claude API ด้วย key ที่ตั้งไว้ ค่าใช้จ่ายประมาณ $0.1–0.6 ต่อครั้ง (Claude Opus 5.5) ใช้เวลา 1–3 นาที";
-      claudeShow(status.ready ? "confirm" : "setup");
-      if (!status.ready) $("claude-key").focus();
-    } catch (error) {
-      toast(error.message);
-    }
-  }
-  async function claudeRun() {
-    claude.busy = true;
-    claudeShow("working");
-    $("metro-claude").textContent = "Claude กำลังดู…";
-    const lockBpm = Number($("lock-bpm").value);
-    try {
-      await flushGrid();
-      const result = await api(`/api/jobs/${job.id}/click/assist`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          beats: beats.map((b) => b.t), downbeats: beats.filter((b) => b.down).map((b) => b.t), meter,
-          bpm: lockBpm >= 30 && lockBpm <= 300 ? lockBpm : null,
-        }),
-      });
-      if (!alive) return;
-      claude.result = result;
-      $("claude-explanation").textContent = result.explanation || "Claude ไม่ได้อธิบายเพิ่ม";
-      const range = result.lock.stretch_range_percent;
-      const lock = result.lock.passes ? `ล็อกผ่าน (ยืดเสียง ${range.slowest}% ถึง +${range.fastest}%)` : "ยังล็อกไม่ผ่าน";
-      const spent = result.via === "cli"
-        ? `ผ่าน Claude Code · เทียบเป็นราคา API ประมาณ $${result.cost_usd.toFixed(2)} (ถ้าใช้แพ็กเกจ Claude จะนับเป็นโควตาแทน)`
-        : `ใช้ไปประมาณ $${result.cost_usd.toFixed(2)}`;
-      $("claude-meta").textContent = `${lock} · ${spent} · ${result.tokens.input.toLocaleString()} + ${result.tokens.output.toLocaleString()} token`;
-      claudeShow("result");
-    } catch (error) {
-      if (!alive) return;
-      if ($("claude-dialog").open) $("claude-dialog").close();
-      toast(error.message);
-    } finally {
-      claude.busy = false;
-      if (alive) $("metro-claude").textContent = "ให้ Claude ช่วยดู";
-    }
-  }
-  function claudeUse() {
-    const result = claude.result;
-    claude.result = null;
-    $("claude-dialog").close();
-    if (!result) return;
-    pushUndo();
-    const downs = new Set(result.downbeats.map(round3));
-    beats = result.beats.map((t) => ({ t: round3(t), down: downs.has(round3(t)) }));
-    meter = result.meter;
-    selectedBeat = null;
-    afterGridChange();
-    toast("ใส่เมโทรนอมที่ Claude แก้แล้ว ฟังดูก่อนล็อก (กดย้อนกลับได้)");
-  }
-  $("metro-claude").addEventListener("click", claudeOpen, on);
-  $("claude-go").addEventListener("click", () => (claude.mode === "result" ? claudeUse() : claudeRun()), on);
-  $("claude-cancel").addEventListener("click", () => {
-    if (claude.mode === "result") claude.result = null;
-    $("claude-dialog").close();
-  }, on);
-  $("claude-close").addEventListener("click", () => $("claude-dialog").close(), on);
-  $("claude-save-key").addEventListener("click", async () => {
-    try {
-      const status = await api("/api/assistant/key", {
-        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: $("claude-key").value }),
-      });
-      $("claude-key").value = "";
-      $("claude-forget-key").hidden = status.source !== "file";
-      claudeShow(status.ready ? "confirm" : "setup");
-    } catch (error) {
-      toast(error.message);
-    }
-  }, on);
-  $("claude-forget-key").addEventListener("click", async () => {
-    try {
-      const status = await api("/api/assistant/key", { method: "DELETE" });
-      toast(status.ready ? "ลบ key ที่บันทึกไว้แล้ว (ยังใช้ key จากที่อื่นในเครื่องอยู่)" : "ลบ API key แล้ว");
-      claudeShow(status.ready ? "confirm" : "setup");
-    } catch (error) {
-      toast(error.message);
-    }
-  }, on);
-
   // Rebuild the spots where the click has slipped off the drums (server-side, see gridfix.py).
   $("metro-repair").hidden = !mixer.tracks.has("drums");
   $("metro-repair").addEventListener("click", async () => {
@@ -2774,7 +2674,6 @@ async function showStudio(job, keep = null) {
     $("steady-working").hidden = mode !== "working";
     $("steady-result").hidden = mode !== "result" && mode !== "failed";
     $("steady-go").hidden = mode !== "choose";
-    $("steady-claude").hidden = mode !== "failed";
     $("steady-cancel").textContent = mode === "choose" ? "ยกเลิก" : "ปิด";
     $("steady-close").disabled = mode === "working";
     $("steady-cancel").disabled = mode === "working";
@@ -2875,7 +2774,7 @@ async function showStudio(job, keep = null) {
         afterGridChange();
         await flushGrid().catch(() => {});
       }
-      steadyResult(null, `ยังทำคลิกให้นิ่งไม่ได้: ${error.message}\nเมโทรนอมกลับเป็นเหมือนก่อนกดแล้ว ลองเลือกความเร็วอื่น ให้ Claude ช่วยดู หรือเปิดแก้เมโทรนอมตรงจุดที่บอกเอง`);
+      steadyResult(null, `ยังทำคลิกให้นิ่งไม่ได้: ${error.message}\nเมโทรนอมกลับเป็นเหมือนก่อนกดแล้ว ลองเลือกความเร็วอื่น หรือเปิดแก้เมโทรนอมตรงจุดที่บอกเอง (หรือให้ Claude แก้ผ่าน MCP)`);
     }
   }
 
@@ -2890,8 +2789,33 @@ async function showStudio(job, keep = null) {
   $("steady-go").addEventListener("click", steadyRun, on);
   $("steady-cancel").addEventListener("click", () => $("steady-dialog").close(), on);
   $("steady-close").addEventListener("click", () => $("steady-dialog").close(), on);
-  $("steady-claude").addEventListener("click", () => { $("steady-dialog").close(); claudeOpen(); }, on);
   if (keep?.steadyReport) steadyResult(keep.steadyReport);
+
+  // ---- changes made from outside this page: Claude through MCP, or another tab
+  let changeSince = null;
+  const pollChanges = async () => {
+    if (!alive) return;
+    try {
+      const log = await api(`/api/jobs/${job.id}/changes?since=${changeSince ?? 0}`);
+      const outside = changeSince === null ? [] : log.changes.filter((c) => c.by !== PAGE_ID);
+      changeSince = log.latest;
+      if (outside.length) {
+        $("song-change-text").textContent = outside.some((c) => c.by === "claude")
+          ? "Claude แก้เพลงนี้แล้ว โหลดเพลงใหม่เพื่อฟังและดูผล"
+          : "เพลงนี้ถูกแก้จากหน้าต่างอื่น โหลดเพลงใหม่เพื่อดูของล่าสุด";
+        $("song-change-bar").hidden = false;
+      }
+    } catch { /* server busy or restarting: try again on the next tick */ }
+    if (alive) setTimeout(pollChanges, 2500);
+  };
+  $("song-change-bar").hidden = true;
+  $("song-change-reload").onclick = async () => {
+    $("song-change-bar").hidden = true;
+    selectedBeat = null;
+    await reopen([...mixer.tracks.keys()]);
+  };
+  $("song-change-dismiss").onclick = () => { $("song-change-bar").hidden = true; };
+  pollChanges();
 
   // ---- cutting a region out into its own track
   function renderSelectionBar() {
@@ -3251,6 +3175,7 @@ async function showStudio(job, keep = null) {
 
   leaveView = () => {
     alive = false;
+    $("song-change-bar").hidden = true;
     clearTimeout(syncTimer);
     clearTimeout(cueTimer);
     previewAudio?.pause();
@@ -3519,9 +3444,38 @@ function watchVersion() {
   document.addEventListener("visibilitychange", () => { if (!document.hidden) check(); });
 }
 
+// Setup for using Prism from Claude through MCP (app/mcp_server.py), with this machine's paths.
+function setupConnectClaude() {
+  const dialog = $("connect-dialog");
+  $("btn-connect-claude").addEventListener("click", async () => {
+    try {
+      const setup = await api("/api/mcp-setup");
+      $("connect-desktop").textContent = setup.desktop_json;
+      $("connect-code").textContent = setup.code_command;
+      $("connect-config-path").textContent = setup.desktop_config_path;
+      dialog.showModal();
+    } catch (error) {
+      toast(error.message);
+    }
+  });
+  $("connect-close").addEventListener("click", () => dialog.close());
+  for (const button of dialog.querySelectorAll("[data-copy]")) {
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText($(button.dataset.copy).textContent);
+        button.textContent = "คัดลอกแล้ว ✓";
+        setTimeout(() => { button.textContent = "คัดลอก"; }, 2000);
+      } catch {
+        toast("คัดลอกไม่ได้ ลากเลือกข้อความแล้วกด Cmd/Ctrl+C แทน");
+      }
+    });
+  }
+}
+
 async function boot() {
   setupUpload();
   setupTrash();
+  setupConnectClaude();
   watchVersion();
   // A button, not a link: this app's routing owns the URL hash.
   $("resource-strip").addEventListener("click", () => $("resources").scrollIntoView());

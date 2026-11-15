@@ -15,7 +15,6 @@ if errorlevel 1 (
   call :setup
   if errorlevel 1 goto :fail
 )
-"%PY%" -c "import anthropic" >nul 2>&1 || "%PY%" -m pip install --quiet "anthropic>=2.8,<3"
 
 call :alive
 if not errorlevel 1 (

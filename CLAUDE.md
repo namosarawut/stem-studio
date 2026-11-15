@@ -24,8 +24,13 @@ Improvement backlog and known gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
   installed falls back to an installed voice of the same language (`cues.voice_info`); Windows voice ids are
   `win-<lang>-<name>`. `.github/workflows/windows.yml` runs `tools/ci/smoke_test.py` on Windows on every push;
   run the same script locally after touching file swaps, cues or the job pipeline.
-- Nothing leaves the machine except the opt-in "ask Claude" button (`app/assistant.py`), which sends only
-  numbers (beat and hit times, section names). Keep it that way and keep the dialog text accurate.
+- Prism itself sends nothing anywhere. Claude can work on songs through the MCP server (`app/mcp_server.py`,
+  set up from "เชื่อมกับ Claude" on the home page); what Claude sees is only what its tools return (titles,
+  sections, cues, beat and drum/bass hit times), never audio. Keep it that way and keep the dialog text accurate.
+- MCP changes go through the same HTTP API as the page, tagged `X-Prism-Client: claude`. The server logs who
+  changed each song (`note_change`, `GET /api/jobs/{id}/changes`); an open song page shows "Claude แก้เพลงนี้แล้ว"
+  with a reload button. The page tags its own requests with a random `PAGE_ID`. New tools: add them to `TOOLS` in
+  `mcp_server.py` (standard library only) and test with a stdio client against a copy server.
 
 ## Testing safely (important)
 
@@ -51,8 +56,8 @@ Improvement backlog and known gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
 | `app/fsutil.py` | File swaps that also work on Windows (retry while a file is open, `.stale` marker for caches) |
 | `app/metronome.py` | `write_wav_atomic`, click track render |
 | `app/midi.py` | MIDI tempo map export (tempo per beat, time signatures, section markers, click notes) |
-| `app/assistant.py` | Optional "ask Claude" (opt-in, sends only beat/hit times and section names): Claude Code CLI (`claude -p`, built-in tools off) or the Claude API, editing a copy of the metronome through 5 tools |
-| `app/bench_mcp.py` | Minimal stdio MCP server that serves those 5 tools to `claude -p` |
+| `app/mcp_server.py` | MCP server (stdio, standard library) so Claude Desktop / Claude Code can pick a song (elicitation picker) and fix its metronome, cues, lead-in and tempo lock through the running server's API, with undo |
+| `app/clickcheck.py` | Read-only metronome checks for MCP (`GET /api/jobs/{id}/click/inspect`): beats vs drum hits, odd gaps, odd bars, lock check |
 | `app/gridfix.py` | Metronome repair from the drum stem ("ซ่อมจุดที่เพี้ยน"): rebuilds spots that slipped off the drums |
 | `app/warp.py` | Tempo lock: beat time map, kink filtering, WSOLA stretch with one shared plan for all tracks |
 | `app/trash.py` | Deletes go to `data/trash/<entry>/` (item + trash.json) for 7 days; restore, purge on startup and on listing |

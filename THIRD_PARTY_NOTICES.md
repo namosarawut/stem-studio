@@ -24,7 +24,6 @@ relying on this table for a commercial release.
 | uvicorn, starlette, psutil | BSD-3-Clause |
 | python-multipart | Apache-2.0 |
 | imageio-ffmpeg | BSD-2-Clause (see ffmpeg below) |
-| anthropic (Claude API SDK, only for the optional "ask Claude" button) | MIT |
 
 Pulled in by those packages: onnxruntime (MIT), julius, einops, PyYAML, dora-search, openunmix
 (MIT), numba (BSD), and **lameenc (LGPL-3.0-or-later)**, which Demucs uses for MP3 output. lameenc

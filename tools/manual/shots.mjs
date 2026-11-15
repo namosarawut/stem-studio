@@ -221,7 +221,7 @@ try {
           { n: 1, ...before(p.querySelector('[data-shift]').closest('.edit-group')) },
           { n: 2, ...before(document.getElementById('metro-bpm').closest('.edit-group')) },
           { n: 3, ...before(document.getElementById('metro-meter').closest('.edit-group')) },
-          { n: 4, ...before(document.getElementById('metro-claude')) },
+          { n: 4, ...before(document.getElementById('metro-repair')) },
           { n: 5, ...before(document.getElementById('tempo-chips').closest('.edit-row')) },
           { n: 6, ...before(document.getElementById('beat-controls')) },
         ];`);
@@ -261,12 +261,20 @@ try {
       meta["repair-before"].gapX = b.x - clip.x;
       meta["repair-after"].toast = toastText;
     }
-    if (want("claude")) {
-      await openEditor(SONG_B, 1000, 0);
-      await run(`document.getElementById('metro-claude').click(); await until(() => document.getElementById('claude-dialog').open, 20000); await wait(600);`);
-      const d = await run(`return box(document.getElementById('claude-dialog'));`);
-      await capture("claude", { x: Math.round(d.l) - 8, y: Math.round(d.t) - 8, width: Math.round(d.w) + 16, height: Math.round(d.h) + 16 });
-      await run(`document.getElementById('claude-cancel').click();`);
+    if (want("connect")) {
+      // Home page: "เชื่อมกับ Claude" opens the MCP setup with this machine's paths.
+      await go(`${BASE}/#/`, 1300);
+      await run(`await until(() => document.querySelector('#library .lib-item'), 15000);
+        document.getElementById('btn-connect-claude').click(); await until(() => document.getElementById('connect-dialog').open && document.getElementById('connect-code').textContent, 10000);
+        // The real paths name this machine's account: show placeholders in the published picture.
+        for (const id of ['connect-desktop', 'connect-code']) {
+          const pre = document.getElementById(id);
+          pre.textContent = pre.textContent.replace(new RegExp('/Users/[^/"]+/[^"]*?stem-studio', 'g'), '/Users/you/Prism');
+        }
+        await wait(600);`);
+      const d = await run(`return box(document.getElementById('connect-dialog'));`);
+      await capture("connect", { x: Math.round(d.l) - 8, y: Math.round(d.t) - 8, width: Math.round(d.w) + 16, height: Math.round(d.h) + 16 });
+      await run(`document.getElementById('connect-close').click();`);
     }
     if (want("steady")) {
       // Song A drifts 93–115 BPM: one step to a steady click.

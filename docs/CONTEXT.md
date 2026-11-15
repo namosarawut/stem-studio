@@ -24,7 +24,7 @@
 
 ## 1. Prism คืออะไร
 
-เว็บแอปที่รันบน Mac ของผู้ใช้เอง (ไม่อัปโหลดเสียงขึ้นเน็ต; ข้อยกเว้นเดียวคือปุ่ม "ให้ Claude ช่วยดู" ที่ผู้ใช้เปิดเอง ส่งแค่ตัวเลขจังหวะ ดู §7) สำหรับนักดนตรีที่ต้อง **เตรียม data ให้วงเล่นสด / เป็น sound MD**:
+เว็บแอปที่รันบนเครื่องของผู้ใช้เอง (Mac หรือ Windows, ไม่อัปโหลดเสียงขึ้นเน็ต; ถ้าผู้ใช้เชื่อม Claude ผ่าน MCP เอง Claude จะเห็นแค่ชื่อเพลง ท่อน cue และตัวเลขจังหวะ ดู §7) สำหรับนักดนตรีที่ต้อง **เตรียม data ให้วงเล่นสด / เป็น sound MD**:
 
 - แยกเพลงเป็น stem ด้วย AI (Demucs; แยกร้องนำ/คอรัสด้วย MelBand Roformer)
 - วิเคราะห์เพลง: BPM (รองรับเพลงที่ความเร็วเปลี่ยนกลางเพลง), คีย์, คอร์ด, ท่อนเพลง, loop
@@ -72,8 +72,8 @@ Browser (vanilla JS, ไม่มี build)  ──HTTP──▶  FastAPI (app/m
 | `app/cues.py` | ~350 | ไลบรารีวลี, `COUNT_STYLES`, TTS ด้วย `say` + cache, `render` แทร็ก cue |
 | `app/metronome.py` | ~48 | `write_wav_atomic`, `render_click` |
 | `app/midi.py` | ~150 | `tempo_map`: ไฟล์ MIDI จากกริดเมโทรนอม (ดู §7) |
-| `app/assistant.py` | ~420 | ปุ่ม "ให้ Claude ช่วยดู": Claude Code CLI ก่อน (ไม่ใช้ key) ไม่งั้น Claude API + เครื่องมือ 5 ตัวแก้เมโทรนอมบนสำเนา (ดู §7) |
-| `app/bench_mcp.py` | ~70 | MCP server (stdio) ที่ให้ `claude -p` เรียกเครื่องมือ 5 ตัว อ่าน/เขียนสถานะจากไฟล์ |
+| `app/mcp_server.py` | ~520 | MCP server (stdio, standard library ล้วน) ให้ Claude Desktop / Claude Code เลือกเพลงและแก้เมโทรนอม cue ช่วงนับ ล็อกความเร็ว ผ่าน API ของเซิร์ฟเวอร์ที่เปิดอยู่ (ดู §7) |
+| `app/clickcheck.py` | ~90 | ตรวจเมโทรนอมเทียบกลองแบบอ่านอย่างเดียว สำหรับ MCP (`/click/inspect`) |
 | `app/gridfix.py` | ~230 | ซ่อมเมโทรนอมจากเสียงกลอง (ปุ่ม "ซ่อมจุดที่เพี้ยน", ดู §7) |
 | `app/warp.py` | ~190 | ล็อกความเร็ว: time map จากบีต, กรองบีตเพี้ยน, ยืดเสียงแบบ WSOLA ใช้แผนเดียวกันทุกแทร็ก (ดู §7) |
 | `app/trash.py` | ~100 | ถังขยะ: ลบแล้วย้ายไป `data/trash/` เก็บ 7 วัน กู้คืนได้ (ดู §7) |
@@ -137,7 +137,7 @@ models/                น้ำหนักโมเดล (TORCH_HOME) + model
 | งาน | `GET/POST /api/jobs` (POST รับ `trim_start`, `trim_end` ได้), `GET/DELETE /api/jobs/{id}`, `GET /api/jobs/{id}/analysis` |
 | เมโทรนอม | `PUT/DELETE /api/jobs/{id}/click` |
 | ห้องนับ | `PUT /api/jobs/{id}/lead-in` |
-| Claude | `GET /api/assistant` (พร้อมไหม/ที่มาของ key ไม่คืน key), `PUT/DELETE /api/assistant/key`, `POST /api/jobs/{id}/click/assist` (เหมือน repair แต่ให้ Claude ทำ ไม่บันทึก) |
+| MCP / Claude | `GET /api/jobs/{id}/click/inspect?start&end&bpm` (ภาพรวม + บีตเทียบกลองในช่วง อ่านอย่างเดียว), `GET /api/jobs/{id}/changes?since=` (ใครแก้เพลงล่าสุด จาก header `X-Prism-Client`), `GET /api/mcp-setup` (ข้อความตั้งค่าพร้อม path ของเครื่องนี้) |
 | ซ่อมเมโทรนอม | `POST /api/jobs/{id}/click/repair` `{beats, downbeats, meter, bpm?}` (เวลา timeline) คืนกริดที่ซ่อมแล้ว ไม่บันทึก |
 | ล็อกความเร็ว | `PUT /api/jobs/{id}/tempo-lock` `{bpm: number|null, position?}` (null = ปลดล็อก) |
 | cue | `GET /api/cues/library`, `GET /api/cues/preview`, `PUT /api/jobs/{id}/cues` |
@@ -195,15 +195,12 @@ models/                น้ำหนักโมเดล (TORCH_HOME) + model
 - Wake Lock (ขอใหม่เมื่อกลับมาที่แท็บ), เต็มจอ, `beforeunload` เตือนเมื่อกำลังเล่นหรืออยู่ในโหมดโชว์, `route()` ไม่ยอมออกจากหน้าเพลย์ลิสต์ระหว่างโหมดโชว์
 - ไอคอนเล่น/หยุดต้องใช้ `toggleAttribute("hidden")` เพราะ SVG ไม่มี `.hidden` (เคยเป็นบั๊กในแถบเพลย์ลิสต์ ไอคอนไม่เปลี่ยน)
 
-**ให้ Claude ช่วยดู** (`assistant.py`, ปุ่มในแผงแก้เมโทรนอม): ไม่บังคับ และเป็นส่วนเดียวที่ส่งข้อมูลออกนอกเครื่อง
-- ส่งเฉพาะตัวเลข: เวลาบีต, เวลาที่กลอง/เบสตีพร้อมความแรง, ชื่อท่อน ไม่ส่งเสียง ชื่อไฟล์ หรือชื่อเพลง หน้าต่างบอกผู้ใช้ทุกครั้งก่อนส่ง **ถ้าจะเพิ่มข้อมูลที่ส่ง ต้องแก้ข้อความในหน้าต่างและ README ด้วย**
-- ทางเรียก (`backend()`): **Claude Code CLI ก่อน** ถ้ามี `claude` และ `claude auth status` บอกว่าล็อกอิน (ใช้บัญชีของผู้ใช้ ไม่ต้องใช้ key) ไม่งั้นใช้ API ถ้ามี key
-- CLI (`run_cli`): `claude -p` ในโฟลเดอร์ชั่วคราว `--tools ""` (ปิด Bash/Read/Write ทั้งหมด) `--mcp-config` ที่ชี้ไป `python -m app.bench_mcp state.json` + `--strict-mcp-config` `--allowedTools mcp__prism__*` `--permission-mode dontAsk` `--setting-sources ""` `--no-session-persistence` `--output-format json` `--model opus --effort high` timeout 10 นาที อ่านผลจาก state.json หลังจบ; ตัดตัวแปร env ของ Claude Code session ออก (`_cli_env`) เผื่อ Prism ถูกเปิดจากใน Claude Code; token หมดอายุ → บอกให้ `claude auth login`
-- key สำหรับทาง API: `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`, โปรไฟล์ `ant auth login`, หรือ key ที่วางในหน้าเว็บ เก็บที่ `~/.config/prism/anthropic-key` (chmod 600 นอก repo) API ไม่เคยส่ง key กลับ
-- ลูปเขียนเอง (`run`, สูงสุด 30 รอบ) model `claude-opus-5-5`, effort high, `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`) เครื่องมือ: `overview`, `get_beats`, `apply_auto_repair`, `replace_beats`, `check_lock` ทำงานบน `Workbench` (สำเนากริดในเวลา timeline) จบด้วยคำอธิบายภาษาไทย + ค่าใช้จ่ายโดยประมาณ
-- ทำทีละงาน (`assist_lock`), ระหว่างล็อกความเร็วใช้ไม่ได้, ผลใส่ตัวแก้ไขเมื่อกด "ใช้ผลนี้" เท่านั้น (ย้อนกลับได้)
-- `start.command` ติดตั้ง `anthropic` แยกถ้ายังไม่มี โดยไม่สร้าง `.venv` ใหม่
-- ทดสอบแล้ว: ลูป API ด้วย client จำลอง, MCP server ผ่าน stdio, `claude -p` ต่อ MCP ได้และเจอ error ล็อกอินถูกข้อความ, หน้าเว็บด้วย fetch จำลอง และเรียกจริงผ่าน CLI กับสำเนา "ยื้อ" (เมโทรนอมอัตโนมัติ ×2): 34 วินาที, ~20K+1.4K token (เทียบราคา API $0.08, แพ็กเกจ Pro นับเป็นโควตา) ล็อก 168 ผ่าน และอธิบายห้อง 2 จังหวะที่ 2:29 พร้อมหลักฐานจากกลอง; ถ้า CLI ตอบ "OAuth access token has expired" ให้ผู้ใช้ `claude auth logout` แล้ว `claude auth login` ใน Terminal เอง
+**ใช้กับ Claude ผ่าน MCP** (`mcp_server.py`, ปุ่ม "เชื่อมกับ Claude" ที่หน้าแรก) แทนปุ่ม "ให้ Claude ช่วยดู" เดิม (ลบแล้ว พร้อม `assistant.py`, `bench_mcp.py` และ dependency `anthropic`)
+- Claude Desktop / Claude Code รัน `<venv python> -m app.mcp_server` เองผ่าน stdio (`PYTHONPATH` = โฟลเดอร์ repo, `STEM_STUDIO_PORT`) หน้าต่างตั้งค่ามี JSON และคำสั่ง `claude mcp add` พร้อม path จริง ต้องเปิด Prism ค้างไว้
+- เครื่องมือ 18 ตัว: `list_songs`, `choose_song` (ถ้า client รองรับ elicitation จะเด้งรายการให้ผู้ใช้คลิกเลือกเพลง ไม่งั้นคืนรายชื่อให้ Claude ถาม), `song_overview`, `check_metronome`, `inspect_beats`, `repair_metronome`, `replace_beats`, `set_beat_one`, `shift_metronome`, `reset_metronome`, `lock_tempo`, `make_click_steady`, `get_cue_library`, `auto_cues` (พอร์ตจาก `autoCues` ในหน้าเว็บ), `add_cue`, `remove_cues`, `set_lead_in`, `undo` (เก็บสถานะก่อนแก้ในหน่วยความจำของ session สูงสุด 30 ขั้นต่อเพลง)
+- ทุกการแก้เรียก API เดียวกับหน้าเว็บ (บันทึก render และล้าง ZIP เหมือนกด) เวลาเป็นเวลา timeline ทั้งหมด header `X-Prism-Client: claude`; หน้าเพลงที่เปิดอยู่ poll `/changes` ทุก 2.5 วิ แล้วขึ้นแถบ "Claude แก้เพลงนี้แล้ว" พร้อมปุ่มโหลดเพลงใหม่ (การแก้ของหน้าเองไม่ขึ้น เพราะมี `PAGE_ID`)
+- สิ่งที่ Claude เห็นคือผลของเครื่องมือเท่านั้น: ชื่อเพลง ท่อน cue เวลาบีตและเสียงกลอง/เบส ไม่มีไฟล์เสียง **ถ้าเพิ่มข้อมูลที่เครื่องมือคืน ต้องแก้ข้อความในหน้าต่างเชื่อมและ README ด้วย**
+- ทดสอบแล้ว: client จำลองผ่าน stdio กับสำเนา (เลือกเพลงด้วย elicitation, ลบบีตแล้วซ่อมกลับ, cue อัตโนมัติ/เพิ่มเอง/นับเข้า, ช่วงนับ, ล็อก, undo จนกลับเป็นเหมือนเดิม, client ไม่มี elicitation) และแถบแจ้งในหน้าเว็บ; ยังไม่ได้ลองกับ Claude Desktop จริง
 
 **ซ่อมเมโทรนอมอัตโนมัติ** (`gridfix.py`, ปุ่ม "ซ่อมจุดที่เพี้ยน" ในแผงแก้เมโทรนอม): หาจุดเดียวกับที่การล็อกจะยืดเกิน 10% (จุดที่ห่างกันไม่เกิน 16 บีตรวมเป็นจุดเดียว) แล้วสร้างใหม่จากเสียงกลอง (onset ของ stem กลอง, cache ในหน่วยความจำ)
 - ยึดหัวท้ายด้วยบีตที่ตรงหัวกลองติดกันสองบีต ลองช่วงใกล้ก่อนแล้วขยายออก 2 ครั้ง เลือกช่วงที่ไม่ต้องเปลี่ยนจำนวนบีตก่อน (มักเป็นบีตหนึ่งเร็วไปอีกบีตช้าไป)
