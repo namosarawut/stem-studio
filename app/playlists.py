@@ -24,6 +24,38 @@ from .metronome import write_wav_atomic
 
 ITEM_ID = re.compile(r"^[0-9a-f]{6,16}$")
 PANS = ("L", "C", "R")
+MAX_OUTPUTS = 16  # channels of an audio interface a track can be sent to
+
+
+def clean_output(value: object) -> str | None:
+    """Where a track plays, in its canonical form: "C" = Out 1-2 (stereo, the default),
+    "L" / "R" = Out 1 / Out 2 (mono), "3-4", "5-6" ... = a stereo pair, "3", "4" ... = one
+    channel (mono). The first pair keeps its old L/C/R names, so mixes saved before more
+    outputs existed keep their meaning and their render cache. None when not valid."""
+    text = str(value).strip().upper()
+    if text in PANS:
+        return text
+    pair = re.fullmatch(r"(\d{1,2})-(\d{1,2})", text)
+    if pair:
+        a, b = int(pair.group(1)), int(pair.group(2))
+        if a % 2 == 1 and b == a + 1 and b <= MAX_OUTPUTS:
+            return "C" if a == 1 else f"{a}-{b}"
+        return None
+    if text.isdigit() and 1 <= int(text) <= MAX_OUTPUTS:
+        return {1: "L", 2: "R"}.get(int(text), str(int(text)))
+    return None
+
+
+def output_channels(value: str) -> tuple[int, ...]:
+    """Zero-based channels of an output: two for a stereo pair, one for a mono channel."""
+    if value == "C":
+        return (0, 1)
+    if value in ("L", "R"):
+        return (0 if value == "L" else 1,)
+    if "-" in value:
+        a, b = value.split("-")
+        return (int(a) - 1, int(b) - 1)
+    return (int(value) - 1,)
 MAX_ITEMS = 300
 MAX_PLAYLISTS = 200
 MAX_NAME = 120
@@ -145,7 +177,12 @@ def create_playlist(root: Path, name: str) -> dict:
 def _clean_mix(raw: object) -> dict:
     raw = raw if isinstance(raw, dict) else {}
     muted = sorted({str(t)[:40] for t in raw.get("muted", []) if isinstance(t, str)})[:64]
-    pan = {str(k)[:40]: v for k, v in (raw.get("pan") or {}).items() if v in PANS and v != "C"} if isinstance(raw.get("pan"), dict) else {}
+    pan = {}
+    if isinstance(raw.get("pan"), dict):
+        for k, v in raw["pan"].items():
+            out = clean_output(v)
+            if out and out != "C":
+                pan[str(k)[:40]] = out
     mix = {"muted": muted, "pan": dict(sorted(pan.items())[:64])}
     gain = clean_gain(raw.get("gain"))
     if gain:
@@ -233,9 +270,10 @@ def mix_key(sources: dict[str, Path], mix: dict) -> str:
 
 
 def render_mix(sources: dict[str, Path], mix: dict, out_dir: Path, peaks_fn) -> dict:
-    """Sum the audible tracks into one stereo WAV. A track sent left or right is folded
-    to mono as (L + R) / 2 first, the same as the studio's mixer, so a centred sound
-    keeps its level. Returns the cache key, duration and waveform peaks."""
+    """Sum the audible tracks into one WAV with as many channels as the outputs used
+    (stereo unless a track goes to Out 3 or above: one channel per interface output). A
+    track sent to one channel is folded to mono as (L + R) / 2 first, the same as the
+    studio's mixer, so a centred sound keeps its level. Returns key, duration, peaks."""
     out_dir.mkdir(parents=True, exist_ok=True)
     key = mix_key(sources, mix)
     path = out_dir / f"{key}.wav"
@@ -247,7 +285,9 @@ def render_mix(sources: dict[str, Path], mix: dict, out_dir: Path, peaks_fn) -> 
         infos = {stem: sf.info(path) for stem, path in sources.items()}
         sample_rate = next(iter(infos.values())).samplerate
         # Every served track has the timeline's length; take the longest to be safe.
-        total = np.zeros((2, max(info.frames for info in infos.values())), dtype=np.float32)
+        outputs = {stem: output_channels(mix["pan"].get(stem, "C")) for stem in sources if stem not in mix["muted"]}
+        channels = max([2] + [max(chans) + 1 for chans in outputs.values()])
+        total = np.zeros((channels, max(info.frames for info in infos.values())), dtype=np.float32)
         for stem, source in sources.items():
             if stem in mix["muted"]:
                 continue
@@ -258,14 +298,15 @@ def render_mix(sources: dict[str, Path], mix: dict, out_dir: Path, peaks_fn) -> 
             db = mix.get("gain", {}).get(stem, 0.0)
             if db:
                 audio *= np.float32(10 ** (db / 20))
-            side = mix["pan"].get(stem, "C")
-            if side == "C":
-                total[:, :length] += audio[:2, :length]
+            chans = outputs[stem]
+            if len(chans) == 2:
+                total[chans[0], :length] += audio[0, :length]
+                total[chans[1], :length] += audio[1, :length]
             else:
-                total[0 if side == "L" else 1, :length] += audio[:2, :length].mean(axis=0)
+                total[chans[0], :length] += audio[:2, :length].mean(axis=0)
             del audio
         write_wav_atomic(path, np.clip(total, -1.0, 1.0).T, sample_rate)
-        meta = {"key": key, "duration": round(total.shape[1] / sample_rate, 3), "peaks": peaks_fn(total, sample_rate)}
+        meta = {"key": key, "duration": round(total.shape[1] / sample_rate, 3), "peaks": peaks_fn(total, sample_rate), "channels": channels}
         write_json_atomic(meta_path, meta)
         # Trim old renders of this song, least recently used first.
         renders = sorted(out_dir.glob("*.wav"), key=lambda p: p.stat().st_mtime, reverse=True)

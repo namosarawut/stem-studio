@@ -693,50 +693,148 @@ function showProcessing(job) {
 
 // ------------------------------------------------------------------ audio engine
 
-/** Pan routing for one track: "C" keeps the stereo image, "L"/"R" fold the track to mono
- * and send it to one speaker only (the usual split for a click or cue in one ear). Three
- * parallel sends with gains, so switching never reconnects nodes or clicks. */
-function makeRoute(ctx, output) {
+// ---- outputs: where a track plays on the sound card. Same rules as playlists.clean_output:
+// "C" = Out 1-2 (stereo, the default), "L"/"R" = Out 1/Out 2 (mono), "3-4" ... a stereo
+// pair, "3" ... one channel (mono). The first pair keeps its L/C/R names so saved songs
+// and setlists keep working. More than 2 outputs need an audio interface set as the
+// computer's sound output, in Chrome or Edge.
+const MAX_OUTPUTS = 16;
+const PANS = ["L", "C", "R"];
+const PAN_NAMES = { L: "ลำโพงซ้าย", C: "ทั้งสองข้าง", R: "ลำโพงขวา" };
+const PAN_SHORT = { L: "ซ้าย", C: "กลาง", R: "ขวา" };
+
+function outCanonical(value) {
+  const text = String(value ?? "C").trim().toUpperCase();
+  if (PANS.includes(text)) return text;
+  const pair = /^(\d{1,2})-(\d{1,2})$/.exec(text);
+  if (pair) {
+    const a = Number(pair[1]);
+    const b = Number(pair[2]);
+    return a % 2 === 1 && b === a + 1 && b <= MAX_OUTPUTS ? (a === 1 ? "C" : `${a}-${b}`) : null;
+  }
+  const one = /^\d{1,2}$/.test(text) ? Number(text) : 0;
+  if (one >= 1 && one <= MAX_OUTPUTS) return one === 1 ? "L" : one === 2 ? "R" : String(one);
+  return null;
+}
+
+/** Zero-based channels: two for a stereo pair, one for a mono channel. */
+function outChannels(out) {
+  if (out === "L") return [0];
+  if (out === "R") return [1];
+  if (!out || out === "C") return [0, 1];
+  if (out.includes("-")) return out.split("-").map((n) => Number(n) - 1);
+  return [Number(out) - 1];
+}
+
+function outName(out) {
+  const ch = outChannels(out);
+  return ch.length === 2 ? `Out ${ch[0] + 1}-${ch[1] + 1}` : `Out ${ch[0] + 1}`;
+}
+
+/** Every output a sound card with `count` channels offers, pairs first then single channels. */
+function outChoices(count) {
+  const choices = [];
+  for (let a = 1; a + 1 <= count; a += 2) choices.push(a === 1 ? "C" : `${a}-${a + 1}`);
+  for (let n = 1; n <= count; n++) choices.push(n === 1 ? "L" : n === 2 ? "R" : String(n));
+  return choices;
+}
+
+function outLabel(out) {
+  if (out === "L") return "Out 1 (ซ้าย)";
+  if (out === "R") return "Out 2 (ขวา)";
+  return outChannels(out).length === 2 ? `${outName(out)} สเตอริโอ` : `${outName(out)} โมโน`;
+}
+
+/** How tracks are routed on screen: "lcr" (left / centre / right buttons) or "out" (a
+ * list of the sound card's outputs). Remembered in this browser for every song and setlist;
+ * until chosen, the list when the card has more than two outputs. Only the controls
+ * change: where each track plays stays as it is. */
+const ROUTE_MODE_KEY = "prism-route-mode";
+function routeMode(outputs) {
+  try {
+    const mode = localStorage.getItem(ROUTE_MODE_KEY);
+    if (mode === "lcr" || mode === "out") return mode;
+  } catch { /* storage blocked */ }
+  return outputs > 2 ? "out" : "lcr";
+}
+function saveRouteMode(mode) {
+  try { localStorage.setItem(ROUTE_MODE_KEY, mode); } catch { /* storage blocked: lasts this page */ }
+}
+
+/** The left/centre/right | outputs switch, as two buttons. */
+function routeModeSwitch(mode, onPick) {
+  const pick = (value, label, title) => el("button", {
+    class: "pan-btn wide", "aria-pressed": String(mode === value), title,
+    onclick: () => { if (mode !== value) { saveRouteMode(value); onPick(value); } },
+  }, label);
+  return el("span", { class: "route-mode", role: "group", "aria-label": "แบบการเลือกลำโพง" },
+    pick("lcr", "ซ้าย·กลาง·ขวา", "เลือกแบบลำโพงซ้าย กลาง ขวา"),
+    pick("out", "เลือกช่อง Out", "เลือกช่องของการ์ดเสียง: Out 1-2, Out 3-4, Out 3 …"));
+}
+
+/** Open every output the sound card has, each channel on its own (no speaker mixing). */
+function useAllOutputs(ctx) {
+  const count = Math.max(2, Math.min(MAX_OUTPUTS, ctx.destination.maxChannelCount || 2));
+  try {
+    ctx.destination.channelCount = count;
+    ctx.destination.channelCountMode = "explicit";
+    ctx.destination.channelInterpretation = "discrete";
+  } catch { /* stays stereo */ }
+  return ctx.destination.channelCount || 2;
+}
+
+/** One track's route into the output merger. A stereo output keeps the image; a single
+ * channel gets the track folded to mono as (L + R) / 2, so a centred sound keeps its
+ * level. Returns false from set() when the sound card has no such output (then silent:
+ * a click meant for in-ears must never fall back into the PA). */
+function makeRoute(ctx, merger) {
   const input = ctx.createGain();
-  const center = ctx.createGain();
-  const left = ctx.createGain();
-  const right = ctx.createGain();
-  // The merger's inputs are mono, so a stereo send is folded as (L + R) / 2: a centred
-  // sound keeps its level when moved to one side.
-  const merger = ctx.createChannelMerger(2);
-  input.connect(center).connect(output);
-  input.connect(left).connect(merger, 0, 0);
-  input.connect(right).connect(merger, 0, 1);
-  merger.connect(output);
-  const set = (pan, at = null) => {
-    const values = { C: [1, 0, 0], L: [0, 1, 0], R: [0, 0, 1] }[pan] ?? [1, 0, 0];
-    [center, left, right].forEach((node, i) => {
-      if (at === null) node.gain.value = values[i];
-      else node.gain.setTargetAtTime(values[i], at, 0.01);
-    });
+  input.channelCount = 2;
+  input.channelCountMode = "explicit";
+  const splitter = ctx.createChannelSplitter(2);
+  const mono = ctx.createGain();
+  mono.gain.value = 0.5;
+  mono.channelCount = 1;
+  mono.channelCountMode = "explicit";
+  input.connect(splitter);
+  splitter.connect(mono, 0);
+  splitter.connect(mono, 1);
+  const set = (out) => {
+    try { splitter.disconnect(merger); } catch { /* not connected yet */ }
+    try { mono.disconnect(merger); } catch { /* not connected yet */ }
+    const ch = outChannels(out);
+    if (ch.some((c) => c >= merger.numberOfInputs)) return false;
+    if (ch.length === 2) {
+      splitter.connect(merger, 0, ch[0]);
+      splitter.connect(merger, 1, ch[1]);
+    } else {
+      mono.connect(merger, 0, ch[0]);
+    }
+    return true;
   };
   set("C");
   return { input, set };
 }
 
-const PANS = ["L", "C", "R"];
-const PAN_NAMES = { L: "ลำโพงซ้าย", C: "ทั้งสองข้าง", R: "ลำโพงขวา" };
-const PAN_SHORT = { L: "ซ้าย", C: "กลาง", R: "ขวา" };
-
 class Mixer {
   constructor(stemIds) {
     this.ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100, latencyHint: "interactive" });
+    this.outputs = useAllOutputs(this.ctx);
+    this.merger = this.ctx.createChannelMerger(this.outputs);
     this.master = this.ctx.createGain();
-    this.master.connect(this.ctx.destination);
+    this.master.channelCount = this.outputs;
+    this.master.channelCountMode = "explicit";
+    this.master.channelInterpretation = "discrete";
+    this.merger.connect(this.master).connect(this.ctx.destination);
     this.tracks = new Map();
     for (const id of stemIds) {
       const gain = this.ctx.createGain();
       const analyser = this.ctx.createAnalyser();
       analyser.fftSize = 1024;
-      const route = makeRoute(this.ctx, this.master);
+      const route = makeRoute(this.ctx, this.merger);
       // Keep the meter in the signal path: a dangling analyser may not be pulled.
       gain.connect(analyser).connect(route.input);
-      this.tracks.set(id, { id, root: id, gain, analyser, route, pan: "C", buffer: null, fader: 1, mute: false, solo: false, source: null, samples: new Float32Array(1024) });
+      this.tracks.set(id, { id, root: id, gain, analyser, route, pan: "C", missing: false, buffer: null, fader: 1, mute: false, solo: false, source: null, samples: new Float32Array(1024) });
     }
     this.playing = false;
     this.offset = 0;
@@ -759,11 +857,14 @@ class Mixer {
     }
   }
 
+  /** Send a track to an output (see outCanonical). Kept even when this sound card lacks
+   * the output, so it comes back when the interface is plugged in; until then it is silent. */
   setPan(id, pan) {
     const track = this.tracks.get(id);
-    if (!track || !PANS.includes(pan)) return;
-    track.pan = pan;
-    track.route.set(pan, this.ctx.currentTime);
+    const out = outCanonical(pan);
+    if (!track || !out) return;
+    track.pan = out;
+    track.missing = !track.route.set(out);
   }
 
   position() {
@@ -861,7 +962,8 @@ class Mixer {
     return peak;
   }
 
-  /** Render the current fader, mute, solo and left/right state to a stereo WAV Blob. */
+  /** Render what plays on Out 1-2 (faders, mute, solo, routing) to a stereo WAV Blob.
+   * Tracks sent to Out 3 or above are not in it. */
   async exportMix() {
     // Use the audio's own length: the song's listed duration is rounded to the millisecond.
     const length = Math.max(...[...this.tracks.values()].map((t) => t.buffer?.length ?? 0));
@@ -873,7 +975,9 @@ class Mixer {
       source.buffer = track.buffer;
       const gain = offline.createGain();
       gain.gain.value = gainValue;
-      const route = makeRoute(offline, offline.destination);
+      const merger = offline.createChannelMerger(2);
+      merger.connect(offline.destination);
+      const route = makeRoute(offline, merger);
       route.set(track.pan);
       source.connect(gain).connect(route.input);
       source.start();
@@ -1021,12 +1125,10 @@ async function showStudio(job, keep = null) {
       meter,
     );
     strips.append(strip);
-    const panButtons = PANS.map((pan) => el("button", {
-      class: "pan-btn", "aria-pressed": "false", "aria-label": `${stem.name} ออก${PAN_NAMES[pan]}`, title: `ออก${PAN_NAMES[pan]}`,
-      onclick: () => { setPan(stem.id, pan); syncPan(); },
-    }, pan));
-    strip.querySelector(".fader-row").append(el("div", { class: "pan", role: "group", "aria-label": `ลำโพงของ ${stem.name}` }, ...panButtons));
-    stripRefs.set(stem.id, { muteButton, soloButton, meter, panButtons });
+    // Filled by renderRouting(): L C R buttons or a list of outputs, by the chosen mode.
+    const panSlot = el("div", { class: "pan-slot" });
+    strip.querySelector(".fader-row").append(panSlot);
+    stripRefs.set(stem.id, { muteButton, soloButton, meter, panSlot, name: stem.name, panButtons: [], panSelect: null });
   }
 
   // ---- presets
@@ -1055,7 +1157,14 @@ async function showStudio(job, keep = null) {
     return button;
   }));
 
-  // ---- left/right routing, remembered per song in this browser
+  // ---- outputs (left/right, or channels of an audio interface), remembered per song in this browser
+  function outputSelect(label, onPick) {
+    const select = el("select", { class: "edit-input out-select", "aria-label": label, title: label });
+    select.append(el("option", { value: "", hidden: "" }, "หลายช่อง"));
+    for (const out of outChoices(mixer.outputs)) select.append(el("option", { value: out }, outLabel(out)));
+    select.addEventListener("change", () => { if (select.value) onPick(select.value); });
+    return select;
+  }
   const panKey = `stem-studio:pan:${job.id}`;
   const savedPans = (() => { try { return JSON.parse(localStorage.getItem(panKey) || "{}"); } catch { return {}; } })();
   for (const [id, pan] of Object.entries(savedPans)) mixer.setPan(id, pan);
@@ -1068,36 +1177,98 @@ async function showStudio(job, keep = null) {
   }
   const guideIds = [...mixer.tracks.keys()].filter((id) => GUIDES.includes(id));
   const otherIds = [...mixer.tracks.keys()].filter((id) => !GUIDES.includes(id));
-  const groupButtons = [];
+  let mode = routeMode(mixer.outputs);
+  let groupButtons = [];
+  let groupSelects = [];
+  const lcrButtons = (ids, wide, label) => PANS.map((pan) => {
+    const button = el("button", {
+      class: `pan-btn${wide ? " wide" : ""}`, "aria-pressed": "false", "aria-label": `${label} ออก${PAN_NAMES[pan]}`, title: `ออก${PAN_NAMES[pan]}`,
+      onclick: () => { ids.forEach((id) => setPan(id, pan)); syncPan(); },
+    }, wide ? PAN_SHORT[pan] : pan);
+    groupButtons.push({ button, ids, pan });
+    return button;
+  });
   const routingGroup = (label, ids) => el("div", { class: "route-group", role: "group", "aria-label": `${label} ออกลำโพง` },
     el("span", { class: "route-label" }, label),
-    ...PANS.map((pan) => {
-      const button = el("button", { class: "pan-btn wide", "aria-pressed": "false", onclick: () => { ids.forEach((id) => setPan(id, pan)); syncPan(); } }, PAN_SHORT[pan]);
-      groupButtons.push({ button, ids, pan });
-      return button;
-    }));
+    ...(mode === "out"
+      ? [(() => {
+        const select = outputSelect(`${label} ออกช่องไหน`, (out) => { ids.forEach((id) => setPan(id, out)); syncPan(); });
+        groupSelects.push({ select, ids });
+        return select;
+      })()]
+      : lcrButtons(ids, true, label)));
   const splitButton = (label, guidePan, otherPan) => el("button", {
     class: "chip", onclick: () => { guideIds.forEach((id) => setPan(id, guidePan)); otherIds.forEach((id) => setPan(id, otherPan)); syncPan(); },
   }, label);
   const routeNote = el("span", { class: "route-note" });
-  $("routing").replaceChildren(
-    el("span", { class: "route-title" }, "ออกลำโพง"),
-    guideIds.length ? routingGroup("คิว + เมโทรนอม", guideIds) : null,
-    routingGroup(guideIds.length ? "แทร็กอื่น" : "ทุกแทร็ก", otherIds),
-    guideIds.length ? splitButton("คิว+เมโทรนอม ซ้าย · ดนตรี ขวา", "L", "R") : null,
-    guideIds.length ? splitButton("คิว+เมโทรนอม ขวา · ดนตรี ซ้าย", "R", "L") : null,
-    el("button", { class: "chip", onclick: () => { mixer.tracks.forEach((t) => setPan(t.id, "C")); syncPan(); } }, "คืนค่าตรงกลาง"),
-    routeNote,
-  );
+
+  /** Build the routing row and each track's control for the current mode. */
+  function renderRouting() {
+    groupButtons = [];
+    groupSelects = [];
+    for (const [id, refs] of stripRefs) {
+      refs.panButtons = [];
+      refs.panSelect = null;
+      if (mode === "out") {
+        refs.panSelect = outputSelect(`${refs.name} ออกช่องไหน`, (out) => { setPan(id, out); syncPan(); });
+        refs.panSlot.replaceChildren(refs.panSelect);
+      } else {
+        const before = groupButtons.length;
+        refs.panSlot.replaceChildren(el("div", { class: "pan", role: "group", "aria-label": `ลำโพงของ ${refs.name}` }, ...lcrButtons([id], false, refs.name)));
+        refs.panButtons = groupButtons.splice(before).map((g) => g.button);
+      }
+    }
+    const many = mixer.outputs;
+    // Buttons that do not apply are null: leave them out (replaceChildren would print "null").
+    $("routing").replaceChildren(...[
+      el("span", { class: "route-title", title: `การ์ดเสียงตอนนี้มี ${many} ช่อง` }, many > 2 ? `ออกลำโพง (การ์ด ${many} ช่อง)` : "ออกลำโพง"),
+      routeModeSwitch(mode, (next) => { mode = next; renderRouting(); }),
+      guideIds.length ? routingGroup("คิว + เมโทรนอม", guideIds) : null,
+      routingGroup(guideIds.length ? "แทร็กอื่น" : "ทุกแทร็ก", otherIds),
+      ...(mode === "out" ? [
+        guideIds.length && many >= 4 ? splitButton("คิว+เมโทรนอม Out 3-4 · ดนตรี Out 1-2", "3-4", "C") : null,
+        guideIds.length && many >= 4 ? splitButton("คิว+เมโทรนอม Out 1-2 · ดนตรี Out 3-4", "C", "3-4") : null,
+        guideIds.length && many >= 3 ? splitButton("คิว+เมโทรนอม Out 3 · ดนตรี Out 1-2", "3", "C") : null,
+        el("button", { class: "chip", onclick: () => { mixer.tracks.forEach((t) => setPan(t.id, "C")); syncPan(); } }, "ทุกแทร็ก Out 1-2"),
+      ] : [
+        guideIds.length ? splitButton("คิว+เมโทรนอม ซ้าย · ดนตรี ขวา", "L", "R") : null,
+        guideIds.length ? splitButton("คิว+เมโทรนอม ขวา · ดนตรี ซ้าย", "R", "L") : null,
+        el("button", { class: "chip", onclick: () => { mixer.tracks.forEach((t) => setPan(t.id, "C")); syncPan(); } }, "คืนค่าตรงกลาง"),
+      ]),
+      routeNote,
+    ].filter(Boolean));
+    syncPan();
+  }
+
   function syncPan() {
     for (const [id, refs] of stripRefs) {
       const pan = mixer.tracks.get(id).pan;
       refs.panButtons.forEach((button, i) => button.setAttribute("aria-pressed", PANS[i] === pan));
+      if (refs.panSelect) {
+        // An output this card does not have stays visible, marked, instead of a blank list.
+        if (![...refs.panSelect.options].some((o) => o.value === pan)) refs.panSelect.append(el("option", { value: pan }, `${outLabel(pan)} (ไม่มีในการ์ดนี้)`));
+        refs.panSelect.value = pan;
+        refs.panSelect.classList.toggle("missing", mixer.tracks.get(id).missing);
+      }
     }
     for (const { button, ids, pan } of groupButtons) button.setAttribute("aria-pressed", ids.length > 0 && ids.every((id) => mixer.tracks.get(id).pan === pan));
+    for (const { select, ids } of groupSelects) {
+      const outs = new Set(ids.map((id) => mixer.tracks.get(id).pan));
+      select.value = outs.size === 1 ? [...outs][0] : "";
+    }
+    const missing = [...mixer.tracks.values()].filter((t) => t.missing);
+    const beyond = [...mixer.tracks.values()].filter((t) => !t.missing && !PANS.includes(t.pan));
     const split = [...mixer.tracks.values()].some((t) => t.pan !== "C");
-    routeNote.textContent = split ? "มีผลตอนเล่นและตอนส่งออกมิกซ์ · ไฟล์แยกแทร็กไม่เปลี่ยน" : "";
+    const nameOf = (t) => stems.find((s) => s.id === t.id)?.name ?? t.id;
+    routeNote.classList.toggle("warn", missing.length > 0);
+    routeNote.textContent = missing.length
+      ? `การ์ดเสียงตอนนี้มี ${mixer.outputs} ช่อง: ${missing.map((t) => `${nameOf(t)} (${outName(t.pan)})`).join(", ")} จึงไม่มีเสียง ต่อการ์ดเสียงหลายช่องแล้วเปิดเพลงใหม่`
+      : mode === "lcr" && beyond.length
+        ? `${beyond.map((t) => `${nameOf(t)} ออก ${outName(t.pan)}`).join(", ")} (กด "เลือกช่อง Out" เพื่อดูหรือเปลี่ยน)`
+        : split ? (beyond.length ? "มีผลตอนเล่น · ส่งออกมิกซ์ได้เฉพาะเสียงที่ออก Out 1-2 · ไฟล์แยกแทร็กไม่เปลี่ยน" : "มีผลตอนเล่นและตอนส่งออกมิกซ์ · ไฟล์แยกแทร็กไม่เปลี่ยน") : "";
   }
+
+  renderRouting();
 
   function syncMixer() {
     syncPan();

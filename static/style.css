@@ -689,3 +689,39 @@ body.show-on { overflow: hidden; }
 }
 .show-song > span:nth-child(2) { min-width: 0; }
 .show-song .name { display: block; }
+
+/* Outputs of a multichannel sound card */
+.out-select { width: auto; max-width: 132px; height: 26px; font-size: 12px; padding: 0 6px; }
+.route-note.warn { color: var(--vocals); }
+.pl-mix-row.missing-out .out-select { border-color: var(--vocals); color: var(--vocals); }
+.route-mode { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; }
+.pl-mix-title { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.out-select.missing { border-color: var(--vocals); color: var(--vocals); }
+
+/* Show mode: instrument switches for the whole set */
+.show-mix { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 6px; }
+.show-track {
+  position: relative; width: 92px; height: 92px; display: grid; justify-items: center; align-content: center; gap: 3px;
+  border-radius: 18px; border: 1.5px solid var(--line-strong); background: var(--surface); color: var(--faint);
+  transition: background .15s, border-color .15s, color .15s, transform .08s; cursor: pointer;
+}
+.show-track:active { transform: scale(.96); }
+.show-track svg { width: 30px; height: 30px; }
+.show-track-name { font-size: 13.5px; font-weight: 600; line-height: 1.2; }
+.show-track-state { font: 600 10.5px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+.show-track.on { color: #fff; border-color: var(--c); background: color-mix(in srgb, var(--c) 22%, var(--surface)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 40%, transparent), 0 6px 22px color-mix(in srgb, var(--c) 25%, transparent); }
+.show-track.on svg, .show-track.on .show-track-state { color: var(--c); }
+.show-track.off { opacity: .75; }
+.show-track.off::after {
+  content: ""; position: absolute; left: 16px; right: 16px; top: 50%; height: 2px; border-radius: 2px;
+  background: var(--vocals); transform: rotate(-35deg); opacity: .85;
+}
+.show-track.off .show-track-state { color: var(--vocals); }
+.show-track.absent { opacity: .28; cursor: not-allowed; }
+.show-track.absent::after { display: none; }
+.show-track.forced::before { content: ""; position: absolute; top: 9px; right: 9px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.show-track.pending { animation: show-pending .9s ease-in-out infinite; }
+@keyframes show-pending { 50% { opacity: .45; } }
+.show-mix-note { color: var(--faint); font-size: 14px; }
+.show-mix-reset { align-self: center; }
+@media (max-width: 700px) { .show-track { width: 72px; height: 76px; border-radius: 14px; } .show-track svg { width: 24px; height: 24px; } }

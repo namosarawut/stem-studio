@@ -50,8 +50,48 @@ function plItemIndex(list, id) {
 const plInfo = new Map();       // source key -> Promise<{url, duration, peaks}>
 const plProjects = new Map();   // job id -> Promise<{stems, sections}>
 
+// ---- tracks turned on or off from show mode, for the whole setlist (kept per setlist in
+// this browser). They sit on top of each song's own mix: "off" mutes the track in every song,
+// "on" plays it even where the song's mix has it off (a click for one show, say).
+const plShowMixes = new Map();   // list id -> {stem: "on" | "off"}
+
+function plShowMix(list) {
+  if (!list) return {};
+  if (!plShowMixes.has(list.id)) {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(`prism-show-mix:${list.id}`) || "{}") || {}; } catch { /* none saved */ }
+    plShowMixes.set(list.id, Object.fromEntries(Object.entries(saved).filter(([, v]) => v === "on" || v === "off")));
+  }
+  return plShowMixes.get(list.id);
+}
+
+function plSetShowMix(list, mix) {
+  plShowMixes.set(list.id, mix);
+  try {
+    if (Object.keys(mix).length) localStorage.setItem(`prism-show-mix:${list.id}`, JSON.stringify(mix));
+    else localStorage.removeItem(`prism-show-mix:${list.id}`);
+  } catch { /* storage blocked: lasts while the page is open */ }
+}
+
+function plListOf(item) {
+  return [pl.playing, pl.shown].find((list) => list?.items.some((i) => i.id === item.id)) ?? null;
+}
+
+/** The mix a project song really plays with: its own, plus the show-mode switches. */
+function plEffectiveMix(item) {
+  const mix = item.mix ?? { muted: [], pan: {} };
+  const over = plShowMix(plListOf(item));
+  if (!Object.keys(over).length) return mix;
+  const muted = new Set(mix.muted);
+  for (const [stem, state] of Object.entries(over)) {
+    if (state === "off") muted.add(stem);
+    else muted.delete(stem);
+  }
+  return { ...mix, muted: [...muted].sort() };
+}
+
 function plSourceKey(item) {
-  return item.kind === "file" ? `file:${item.ref}` : `project:${item.ref}:${JSON.stringify(item.mix ?? {})}`;
+  return item.kind === "file" ? `file:${item.ref}` : `project:${item.ref}:${JSON.stringify(plEffectiveMix(item))}`;
 }
 
 function plKnown(item) {
@@ -65,7 +105,7 @@ function plSource(item) {
     const promise = (item.kind === "file"
       ? api(`/api/library/${item.ref}`).then((meta) => ({ url: `/api/library/${item.ref}/audio.wav`, duration: meta.duration, peaks: meta.peaks }))
       : api(`/api/jobs/${item.ref}/playback`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(item.mix ?? { muted: [], pan: {} }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(plEffectiveMix(item)),
       })).then((info) => { promise.settled = info; return info; });
     promise.catch(() => plInfo.delete(key));  // let a later try start over
     plInfo.set(key, promise);
@@ -121,8 +161,19 @@ const plPlayer = {
   waiting: false,       // a song ended and the next is still loading
 
   context() {
-    if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100, latencyHint: "playback" });
+    if (!this.ctx) {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100, latencyHint: "playback" });
+      // Every output of the sound card, each channel kept apart: a mix rendered with the
+      // click on Out 3 plays it on Out 3, and never mixed down into Out 1-2 (the PA).
+      this.outputs = useAllOutputs(this.ctx);
+    }
     return this.ctx;
+  },
+
+  /** Outputs of the sound card (2 on a laptop, more with an audio interface). */
+  outputCount() {
+    this.context();
+    return this.outputs;
   },
 
   buffer(url) {
@@ -148,7 +199,12 @@ const plPlayer = {
     const source = ctx.createBufferSource();
     source.buffer = buffer;
     const gain = ctx.createGain();
+    gain.channelInterpretation = "discrete";
     source.connect(gain).connect(ctx.destination);
+    if (buffer.numberOfChannels > this.outputs && this.warned !== item.id) {
+      this.warned = item.id;
+      toast(`"${item.title}" ตั้งให้บางแทร็กออก Out ${this.outputs + 1} ขึ้นไป แต่การ์ดเสียงตอนนี้มี ${this.outputs} ช่อง แทร็กนั้นจะไม่มีเสียง`);
+    }
     const endAt = when + length;
     // Fade in only from the item's own start; a resume mid-song just avoids a click.
     const fadeIn = Math.min(from <= start + 0.01 ? Math.max(item.fade_in || 0, PL_ANTI_CLICK) : PL_ANTI_CLICK, length / 2);
@@ -588,8 +644,11 @@ function plSummary() {
     if (known == null) unknown++;
   }
   total += (list.gap || 0) * Math.max(0, list.items.length - 1);
+  // Switches made in show mode act on every song: say so here, where the songs' own mixes are set.
+  const names = { vocals: "เสียงร้อง", lead_vocals: "ร้องนำ", backing_vocals: "คอรัส", drums: "กลอง", bass: "เบส", guitar: "กีตาร์", piano: "เปียโน", other: "ดนตรีอื่น", click: "เมโทรนอม", cues: "cue" };
+  const show = Object.entries(plShowMix(list)).map(([stem, state]) => `${state === "off" ? "ปิด" : "เปิด"}${names[stem] ?? stem}`);
   $("pl-summary").textContent = list.items.length
-    ? `${list.items.length} เพลง · ${unknown ? "ประมาณ " : ""}${fmtTime(total)} นาที`
+    ? `${list.items.length} เพลง · ${unknown ? "ประมาณ " : ""}${fmtTime(total)} นาที${show.length ? ` · โหมดโชว์: ${show.join(", ")} ทั้งเซ็ต` : ""}`
     : "";
 }
 
@@ -878,7 +937,13 @@ function plRefreshRow(item) {
 }
 
 function plMixEditor(item) {
-  const box = el("div", { class: "pl-mix" }, el("div", { class: "pl-mix-title" }, "แทร็กที่เล่น และลำโพงซ้าย-ขวา"));
+  const outputs = plPlayer.outputCount();
+  const mode = routeMode(outputs);
+  const box = el("div", { class: "pl-mix" });
+  // Switching left/centre/right <-> outputs rebuilds this editor; the mix itself stays.
+  box.append(el("div", { class: "pl-mix-title" },
+    el("span", {}, mode === "out" ? `แทร็กที่เล่น และช่องที่ออก (การ์ดเสียง ${outputs} ช่อง)` : "แทร็กที่เล่น และลำโพงซ้าย-ขวา"),
+    routeModeSwitch(mode, () => box.replaceWith(plMixEditor(item)))));
   const grid = el("div", { class: "pl-mix-grid" }, el("span", { class: "pl-wave-note static" }, "กำลังโหลดรายชื่อแทร็ก…"));
   const quick = el("div", { class: "pl-detail-row" });
   box.append(grid, quick);
@@ -896,15 +961,20 @@ function plMixEditor(item) {
     const paint = () => rows.forEach((r) => r());
     grid.replaceChildren(...stems.map((stem) => {
       const on = el("input", { type: "checkbox", "aria-label": `เปิด ${stem.name}` });
-      const pans = PAN_ORDER.map((pan) => {
+      const pick = (out) => {
+        if (out === "C") delete item.mix.pan[stem.id]; else item.mix.pan[stem.id] = out;
+        paint();
+        changed();
+      };
+      const pans = mode === "out" ? [] : PAN_ORDER.map((pan) => {
         const button = el("button", { class: "pan-btn", "aria-label": `${stem.name} ออก${PAN_TEXT[pan]}` }, pan);
-        button.addEventListener("click", () => {
-          if (pan === "C") delete item.mix.pan[stem.id]; else item.mix.pan[stem.id] = pan;
-          paint();
-          changed();
-        });
+        button.addEventListener("click", () => pick(pan));
         return button;
       });
+      // An audio interface with more outputs: pick any of them (Out 3-4, Out 3 ...).
+      const outSelect = mode === "out" ? el("select", { class: "edit-input out-select", "aria-label": `${stem.name} ออกช่องไหน` },
+        ...outChoices(outputs).map((out) => el("option", { value: out }, outLabel(out)))) : null;
+      outSelect?.addEventListener("change", () => pick(outSelect.value));
       on.addEventListener("change", () => {
         const muted = new Set(item.mix.muted);
         if (on.checked) muted.delete(stem.id); else muted.add(stem.id);
@@ -933,15 +1003,23 @@ function plMixEditor(item) {
         on.checked = !item.mix.muted.includes(stem.id);
         const pan = item.mix.pan[stem.id] ?? "C";
         pans.forEach((b, i) => b.setAttribute("aria-pressed", String(PAN_ORDER[i] === pan)));
+        if (outSelect) {
+          if (![...outSelect.options].some((o) => o.value === pan)) outSelect.append(el("option", { value: pan }, `${outLabel(pan)} (ไม่มีในการ์ดนี้)`));
+          outSelect.value = pan;
+        }
+        const missing = outChannels(pan).some((c) => c >= outputs);
+        row.classList.toggle("missing-out", missing);
+        row.title = missing ? `ตั้งไว้ออก ${outName(pan)} แต่การ์ดเสียงตอนนี้มี ${outputs} ช่อง แทร็กนี้จะไม่มีเสียง` : "";
         const db = item.mix.gain?.[stem.id] ?? 0;
         level.value = String(db);
         readout.textContent = plDb(db);
         level.disabled = !on.checked;
       });
-      return el("div", { class: `pl-mix-row${stem.guide ? " guide" : ""}` },
+      const row = el("div", { class: `pl-mix-row${stem.guide ? " guide" : ""}` },
         el("label", { class: "pl-check" }, on, stem.name),
         el("span", { class: "pl-level-box" }, level, readout),
-        el("span", { class: "pan" }, ...pans));
+        outSelect ?? el("span", { class: "pan" }, ...pans));
+      return row;
     }));
     paint();
     const guides = stems.filter((s) => s.guide).map((s) => s.id);
@@ -953,7 +1031,7 @@ function plMixEditor(item) {
       button.addEventListener("click", () => { apply(); paint(); changed(); });
       return button;
     };
-    quick.replaceChildren(
+    quick.replaceChildren(...[
       preset("เปิดทุกแทร็ก", () => { item.mix.muted = []; }),
       preset("ปิดเสียงร้อง", () => { item.mix.muted = [...new Set([...item.mix.muted, ...stems.filter((s) => /vocal/.test(s.id)).map((s) => s.id)])].sort(); }),
       keys.length ? preset(keysLabel, () => {
@@ -963,10 +1041,17 @@ function plMixEditor(item) {
         item.mix.muted = [...new Set([...kept, ...music.filter((id) => !keys.includes(id))])].sort();
       }) : null,
       preset("ความดังเท่าเดิมทุกแทร็ก", () => { delete item.mix.gain; }),
-      guides.length ? preset("คิว+เมโทรนอม ซ้าย · ดนตรี ขวา", () => { item.mix.pan = Object.fromEntries([...guides.map((id) => [id, "L"]), ...others.map((id) => [id, "R"])]); }) : null,
-      guides.length ? preset("คิว+เมโทรนอม ขวา · ดนตรี ซ้าย", () => { item.mix.pan = Object.fromEntries([...guides.map((id) => [id, "R"]), ...others.map((id) => [id, "L"])]); }) : null,
-      preset("ทุกแทร็กตรงกลาง", () => { item.mix.pan = {}; }),
-    );
+      ...(mode === "out" ? [
+        guides.length && outputs >= 4 ? preset("คิว+เมโทรนอม Out 3-4 · ดนตรี Out 1-2", () => { item.mix.pan = Object.fromEntries(guides.map((id) => [id, "3-4"])); }) : null,
+        guides.length && outputs >= 4 ? preset("คิว+เมโทรนอม Out 1-2 · ดนตรี Out 3-4", () => { item.mix.pan = Object.fromEntries(others.map((id) => [id, "3-4"])); }) : null,
+        guides.length && outputs >= 3 ? preset("คิว+เมโทรนอม Out 3 · ดนตรี Out 1-2", () => { item.mix.pan = Object.fromEntries(guides.map((id) => [id, "3"])); }) : null,
+        preset("ทุกแทร็ก Out 1-2", () => { item.mix.pan = {}; }),
+      ] : [
+        guides.length ? preset("คิว+เมโทรนอม ซ้าย · ดนตรี ขวา", () => { item.mix.pan = Object.fromEntries([...guides.map((id) => [id, "L"]), ...others.map((id) => [id, "R"])]); }) : null,
+        guides.length ? preset("คิว+เมโทรนอม ขวา · ดนตรี ซ้าย", () => { item.mix.pan = Object.fromEntries([...guides.map((id) => [id, "R"]), ...others.map((id) => [id, "L"])]); }) : null,
+        preset("ทุกแทร็กตรงกลาง", () => { item.mix.pan = {}; }),
+      ]),
+    ].filter(Boolean));
   }).catch((error) => grid.replaceChildren(el("span", { class: "pl-missing" }, error.message)));
   return box;
 }

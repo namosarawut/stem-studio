@@ -2,7 +2,7 @@
 
 Prism (repo and folder still named `stem-studio`) is a local web app for musicians, aimed at people
 who prepare backing "data" / act as MD for live shows: AI stem separation, song analysis, an
-editable click track, spoken cue/count-in track, lead-in bars, region cuts into new tracks, L/R
+editable click track, spoken cue/count-in track, lead-in bars, region cuts into new tracks, output
 routing, export, and a setlist player. UI text is Thai; keep new UI copy in natural spoken Thai.
 
 **New to this repo? Read [docs/CONTEXT.md](docs/CONTEXT.md) first.** It is the full handoff: hard rules
@@ -64,7 +64,7 @@ Improvement backlog and known gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
 | `app/monitor.py` | Per-job resource report (CPU, RAM, GPU via `ioreg` or `nvidia-smi`, disk) |
 | `app/playlists.py` | Setlists, imported files (`data/library`), server-rendered project mixes for playback |
 | `static/app.js` | Router, home, processing view, studio (Mixer class, timeline canvas, metronome editor, cues, cuts, lead-in, routing, export) |
-| `static/show.js` | Show mode for the setlist player: full screen, footswitch keys, Web MIDI learn (`prism-show-midi` in localStorage), screen lock, wake lock, leave guard. State object is `stage` (app.js already has `show()`) |
+| `static/show.js` | Show mode for the setlist player: full screen, footswitch keys, Web MIDI learn (`prism-show-midi` in localStorage), screen lock, wake lock, leave guard, instrument switches for the whole set (`prism-show-mix:<list>` in localStorage, applied through `plEffectiveMix`, live via `plPlayer.replan`). State object is `stage` (app.js already has `show()`) |
 | `static/playlist.js` | Setlist page, gapless player (`plPlayer`), add-to-setlist dialog from the studio |
 | `tools/promo/` | Scripts that made the promo screenshots, deck images and 9:16 video |
 | `docs/manual/` | User manual in Thai (4 phases, screenshots and animations), a static page: open `index.html`, or `/manual/` on the server (the "คู่มือ" button on the home page). GitHub Pages publishes `docs/` from `main` (https://namosarawut.github.io/stem-studio/manual/; `docs/index.html` redirects there), so anything in `docs/` is public |
@@ -79,7 +79,7 @@ Improvement backlog and known gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
 - `data/trash/<kind>-<id>-<rand>/`: a deleted song, import or setlist (`item`) plus `trash.json`; purged after 7 days.
 - `data/library/<id>/`: imported file as `audio.wav` + `meta.json` (with peaks).
 - `data/playlists/<id>.json`: `{name, auto_advance, gap, items: [{id, kind: file|project, ref, title,
-  start, end|null, stop_after, fade_in, fade_out, mix?: {muted: [...], pan: {stem: L|R}, gain?: {stem: dB}}}]}`
+  start, end|null, stop_after, fade_in, fade_out, mix?: {muted: [...], pan: {stem: L|R|"3-4"|"3"…}, gain?: {stem: dB}}}]}`
   (gain -60..+12 dB, 0 dB left out so old mixes keep their render cache).
 
 ## Invariants and gotchas
@@ -101,7 +101,15 @@ Improvement backlog and known gaps: [docs/ROADMAP.md](docs/ROADMAP.md).
 - **Beat tracking:** a per-song hop that divides the beat exactly (librosa rounds frames per beat);
   a tempo curve is accepted only if it lands ≥1.5× better on hits; beats are snapped to attacks.
 - **Count-ins** lead into the beat nearest the cue (within 0.4 × beat gap) so they survive grid edits.
-- **L/R routing:** L or R folds the track to mono as (L+R)/2 so centred sounds keep their level.
+- **Outputs (routing):** each track goes to an output of the sound card: `C` = Out 1-2 (default), `L`/`R` =
+  Out 1/2 mono, `"3-4"`, `"5-6"`… = a stereo pair, `"3"`… = one channel (up to 16). The first pair keeps the
+  old L/C/R names so saved songs, setlists and render caches are unchanged (`playlists.clean_output`,
+  `outCanonical` in app.js). A single channel folds the track to mono as (L+R)/2 so centred sounds keep their level.
+  The page opens every output (`useAllOutputs`, discrete channels, `ChannelMerger`); setlist mixes render one WAV
+  channel per output used. An output the current card lacks plays nothing (never folded into the mains) and the
+  page warns. Studio "ส่งออกมิกซ์" is what plays on Out 1-2. The controls switch between L/C/R buttons and an
+  output list (`routeMode`, `prism-route-mode` in localStorage, shared by song page and setlists); switching never
+  changes a track's output.
   Same rule in the browser (`makeRoute`) and the server (`playlists.render_mix`).
 - **Export names** are instrument labels only (`drums.wav`, custom track names); the ZIP is named
   after the song. Duplicate labels get the stem id appended.

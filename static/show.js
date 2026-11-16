@@ -22,6 +22,9 @@ const stage = {   // not `show`: app.js has show(view)
   events: null,
   sections: new Map(), // job id -> sections
   clock: 0,
+  trackLists: new Map(), // job id -> Set of track ids (null while loading)
+  mixSignature: null,    // what the track switches last showed
+  pending: null,         // { stem, slot } a switch waiting for the new mix to play
 };
 
 function showLoadMap() {
@@ -247,6 +250,109 @@ async function showMidiPanel() {
   }));
 }
 
+// ---- track switches: turn an instrument on or off for the whole set, live
+
+const SHOW_ICONS = {
+  mic: '<rect x="9" y="2.5" width="6" height="11.5" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/>',
+  choir: '<rect x="4" y="4" width="5" height="9" rx="2.5"/><rect x="15" y="4" width="5" height="9" rx="2.5"/><path d="M2.5 11a4 4 0 0 0 8 0M13.5 11a4 4 0 0 0 8 0M6.5 15v4M17.5 15v4"/>',
+  drum: '<ellipse cx="12" cy="9" rx="8.5" ry="3.2"/><path d="M3.5 9v7.5c0 1.8 3.8 3.3 8.5 3.3s8.5-1.5 8.5-3.3V9"/><path d="M7.5 12.2v6.6M16.5 12.2v6.6M15.5 2.5 12 9M8.5 2.5 12 9"/>',
+  guitar: '<path d="M13.6 10.4a4 4 0 0 0-5.7 0c-.9.9-1 2.1-1.6 2.7-.6.6-2 .7-3 1.7a3.3 3.3 0 0 0 4.7 4.7c1-1 1.1-2.4 1.7-3 .6-.6 1.8-.7 2.7-1.6a4 4 0 0 0 0-5.7Z"/><path d="m12 12 8.5-8.5M18.5 2.5l3 3"/><circle cx="9.6" cy="14.4" r="1.2"/>',
+  bass: '<path d="M12.6 11.4a3.6 3.6 0 0 0-5.1 0c-.8.8-.9 1.9-1.4 2.4-.5.5-1.8.6-2.7 1.5a3 3 0 0 0 4.3 4.3c.9-.9 1-2.2 1.5-2.7.5-.5 1.6-.6 2.4-1.4a3.6 3.6 0 0 0 0-5.1Z"/><path d="m11 13 10-10"/><path d="M17.5 4.5 19.5 6.5M15.5 6.5l2 2"/><circle cx="8.8" cy="15.2" r="1"/>',
+  piano: '<rect x="2.5" y="5" width="19" height="14" rx="2"/><path d="M7.2 5v14M12 5v14M16.8 5v14"/><path d="M5.6 5v7.5M9.6 5v7.5M14.4 5v7.5M19.2 5v7.5" stroke-width="2.6"/>',
+  notes: '<path d="M9 18V5.5l11-2V16"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/><path d="M9 9.5l11-2"/>',
+  metronome: '<path d="M8.5 3.5h7L19 20.5H5Z"/><path d="m12 16.5 5.5-9"/><circle cx="17.5" cy="7.5" r="1.3"/><path d="M5.8 16.5h12.4"/>',
+  cue: '<path d="M20.5 12a8.5 8.5 0 0 1-12.4 7.6L3.5 20.5l1-4.4A8.5 8.5 0 1 1 20.5 12Z"/><path d="M8.5 10.5h7M8.5 13.8h4.5"/>',
+};
+const SHOW_TRACKS = [
+  ["vocals", "เสียงร้อง", "mic"], ["lead_vocals", "ร้องนำ", "mic"], ["backing_vocals", "คอรัส", "choir"],
+  ["drums", "กลอง", "drum"], ["bass", "เบส", "bass"], ["guitar", "กีตาร์", "guitar"], ["piano", "เปียโน", "piano"],
+  ["other", "ดนตรีอื่น", "notes"], ["click", "เมโทรนอม", "metronome"], ["cues", "cue", "cue"],
+];
+
+/** Tracks the setlist's songs have (known once each song's track list has loaded). */
+function showSetTracks(list) {
+  const found = new Set();
+  let pending = false;
+  for (const item of list.items) {
+    if (item.kind !== "project") continue;
+    if (!stage.trackLists.has(item.ref)) {
+      stage.trackLists.set(item.ref, null);
+      plProject(item.ref).then((project) => {
+        stage.trackLists.set(item.ref, new Set(project.stems.map((s) => s.id)));
+        stage.mixSignature = null;   // draw again with what is now known
+      }).catch(() => {});
+    }
+    const ids = stage.trackLists.get(item.ref);
+    if (ids) ids.forEach((id) => found.add(id)); else pending = true;
+  }
+  return { found, pending };
+}
+
+function showToggleTrack(stem) {
+  const list = plPlayer.list();
+  const item = list && plPlayer.item(plPlayer.currentId() ?? list.items[0]?.id);
+  if (!item || item.kind !== "project") return;
+  const audible = !plEffectiveMix(item).muted.includes(stem);
+  plSetShowMix(list, { ...plShowMix(list), [stem]: audible ? "off" : "on" });
+  stage.pending = plPlayer.playing ? { stem, slot: plPlayer.now } : null;
+  if (plPlayer.playing) plPlayer.replan(item.id);   // goes on from the same place with the new mix
+  if (list === pl.shown && !$("view-playlists").hidden) plRenderItems();
+  stage.mixSignature = null;
+  showRenderMix();
+}
+
+function showResetTracks() {
+  const list = plPlayer.list();
+  if (!list) return;
+  plSetShowMix(list, {});
+  const id = plPlayer.currentId();
+  if (plPlayer.playing && id) plPlayer.replan(id);
+  stage.pending = null;
+  stage.mixSignature = null;
+  showRenderMix();
+}
+
+/** The row of instrument switches for the song on screen. Drawn again only when something
+ * it shows has changed (it is called on every frame). */
+function showRenderMix() {
+  const box = $("show-mix");
+  const list = plPlayer.list();
+  const item = list && plPlayer.item(plPlayer.currentId() ?? list.items[0]?.id);
+  if (stage.pending && (plPlayer.now !== stage.pending.slot || !plPlayer.playing)) stage.pending = null;
+  if (!list || !item) { box.replaceChildren(); stage.mixSignature = null; return; }
+  const over = plShowMix(list);
+  const { found } = showSetTracks(list);
+  const own = item.kind === "project" ? stage.trackLists.get(item.ref) : null;
+  const muted = item.kind === "project" ? plEffectiveMix(item).muted : [];
+  const signature = JSON.stringify([item.id, item.kind, muted, over, [...found].sort(), own ? [...own].sort() : null, stage.pending?.stem ?? null, stage.locked]);
+  if (signature === stage.mixSignature) return;
+  stage.mixSignature = signature;
+  if (item.kind !== "project") {
+    box.replaceChildren(el("span", { class: "show-mix-note" }, "ไฟล์ที่นำเข้าเล่นทั้งไฟล์ ปิดเปิดแยกเครื่องไม่ได้"));
+    return;
+  }
+  const buttons = SHOW_TRACKS.filter(([id]) => found.has(id)).map(([id, label, icon]) => {
+    const inSong = own ? own.has(id) : true;
+    const on = inSong && !muted.includes(id);
+    const button = el("button", {
+      class: `show-track${on ? " on" : " off"}${inSong ? "" : " absent"}${over[id] ? " forced" : ""}${stage.pending?.stem === id ? " pending" : ""}`,
+      style: `--c:${STEM_COLORS[id] ?? "#9aa0ad"}`,
+      "aria-pressed": String(on),
+      "aria-label": `${label} ${on ? "เปิดอยู่" : "ปิดอยู่"}${inSong ? "" : " (เพลงนี้ไม่มี)"}`,
+      title: !inSong ? `เพลงนี้ไม่มี${label}` : `${on ? "ปิด" : "เปิด"}${label}ทั้งเซ็ต`,
+    });
+    if (!inSong) button.disabled = true;
+    button.innerHTML = `<svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SHOW_ICONS[icon]}</svg>`;
+    button.append(el("span", { class: "show-track-name" }, label), el("span", { class: "show-track-state" }, !inSong ? "ไม่มี" : on ? "เปิด" : "ปิด"));
+    button.addEventListener("click", () => showToggleTrack(id));
+    return button;
+  });
+  const reset = Object.keys(over).length
+    ? el("button", { class: "chip show-mix-reset", title: "กลับไปใช้ค่าของแต่ละเพลงในเพลย์ลิสต์", onclick: showResetTracks }, "คืนค่าตามเพลย์ลิสต์")
+    : null;
+  box.replaceChildren(...buttons, ...(reset ? [reset] : []));
+}
+
 // ---- drawing (called by playlist.js whenever the player changes, and every frame)
 
 function showSectionAt(item, pos) {
@@ -367,6 +473,7 @@ function plShowRender(full = false) {
   $("show-elapsed").textContent = elapsed < -0.05 && plPlayer.playing ? `เริ่มใน ${Math.ceil(-elapsed)}` : fmtTime(Math.max(0, elapsed));
   $("show-left").textContent = length === null ? "–" : `−${fmtTime(Math.max(0, length - Math.max(0, elapsed)))}`;
   $("show-bar").style.width = `${length ? Math.min(1, Math.max(0, elapsed / length)) * 100 : 0}%`;
+  showRenderMix();
   const section = showSectionAt(item, pos);
   $("show-section").textContent = section?.now ?? "";
   $("show-section-next").textContent = section?.next ? `ต่อไป ${section.next.label} ใน ${fmtTime(Math.max(0, section.next.start - pos))}` : "";

@@ -1121,8 +1121,9 @@ class MixRequest(BaseModel):
 
 @app.post("/api/jobs/{job_id}/playback")
 def render_playback(job_id: str, request: MixRequest) -> dict:
-    """One stereo file of a finished song with the chosen tracks on and routed, for the
-    setlist player. Includes the lead-in, so a count-in plays too."""
+    """One file of a finished song with the chosen tracks on and routed to their outputs
+    (stereo, or one channel per interface output when a track goes to Out 3 or above), for
+    the setlist player. Includes the lead-in, so a count-in plays too."""
     job = editable_job(job_id)
     folder = job_dir(job_id)
     with edit_lock:
@@ -1132,7 +1133,8 @@ def render_playback(job_id: str, request: MixRequest) -> dict:
     sources = {stem: path for stem, path in sources.items() if path.exists()}
     if not sources:
         raise HTTPException(409, "ไม่พบไฟล์เสียงของเพลงนี้")
-    mix = {"muted": sorted(set(request.muted) & set(sources)), "pan": {k: v for k, v in request.pan.items() if k in sources and v in ("L", "R")}}
+    outputs = {k: playlists.clean_output(v) for k, v in request.pan.items() if k in sources}
+    mix = {"muted": sorted(set(request.muted) & set(sources)), "pan": {k: v for k, v in outputs.items() if v and v != "C"}}
     gain = {k: v for k, v in playlists.clean_gain(request.gain).items() if k in sources}
     if gain:  # left out at 0 dB everywhere, so mixes made before levels existed keep their cache
         mix["gain"] = gain
