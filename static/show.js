@@ -279,7 +279,8 @@ function showSetTracks(list) {
       stage.trackLists.set(item.ref, null);
       plProject(item.ref).then((project) => {
         stage.trackLists.set(item.ref, new Set(project.stems.map((s) => s.id)));
-        stage.mixSignature = null;   // draw again with what is now known
+        stage.mixSignature = null;   // draw again with what is now known, also while stopped
+        if (stage.active) showRenderMix();
       }).catch(() => {});
     }
     const ids = stage.trackLists.get(item.ref);
@@ -461,6 +462,8 @@ function plShowRender(full = false) {
   const after = list.items[index + 1];
   $("show-count").textContent = `เพลงที่ ${index + 1} / ${list.items.length}`;
   $("show-title").textContent = item.title;
+  $("show-title").classList.toggle("long", item.title.length > 28);
+  $("show-title").title = item.title;
   $("show-state").textContent = plPlayer.playing ? "กำลังเล่น" : plPlayer.waiting ? "กำลังโหลด…" : "พร้อมเล่น · กด Space หรือแป้นเหยียบ";
   $("show-state").classList.toggle("live", plPlayer.playing);
   $("show-next-title").textContent = after ? after.title : "จบเพลย์ลิสต์";

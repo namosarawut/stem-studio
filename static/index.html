@@ -577,7 +577,6 @@
       <div class="show-time"><span id="show-elapsed">0:00</span><span class="show-left" id="show-left">–</span></div>
       <div class="show-bar"><i id="show-bar"></i></div>
       <div class="show-next">ต่อไป <strong id="show-next-title"></strong> <span id="show-next-how"></span></div>
-      <div class="show-mix" id="show-mix" role="group" aria-label="เปิดปิดเสียงแต่ละเครื่องทั้งเซ็ต"></div>
     </div>
     <aside class="show-list" id="show-list-panel" aria-label="เพลงในเพลย์ลิสต์">
       <div class="show-list-head">
@@ -588,6 +587,8 @@
       <p class="show-list-hint">แตะเพลงเพื่อเลือกเป็นเพลงถัดไปที่จะเล่น ระหว่างเล่นต้องแตะสองครั้งถึงจะเปลี่ยนเพลงทันที ↑ ↓ ย้ายลำดับ</p>
     </aside>
     </div>
+    <!-- Its own row: a long title must never push the switches over the play buttons. -->
+    <div class="show-mix" id="show-mix" role="group" aria-label="เปิดปิดเสียงแต่ละเครื่องทั้งเซ็ต"></div>
     <div class="show-controls">
       <button class="show-btn" id="show-prev" aria-label="เพลงก่อนหน้า หรือกลับต้นเพลง">
         <svg viewBox="0 0 24 24" width="40" height="40" fill="currentColor"><path d="M6 5h2.5v14H6zM20 5v14L9 12z"/></svg>
